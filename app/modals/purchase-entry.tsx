@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Modal, Alert, TextInput, Vibration } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, type BarcodeType } from 'expo-camera';
 
@@ -37,6 +37,7 @@ const PURCHASE_BARCODE_TYPES: BarcodeType[] = ['ean13', 'ean8', 'code128', 'code
 
 export default function PurchaseEntryModal() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ vendorId?: string }>();
   const { t } = useLanguage();
   const { vendors, products, addPurchase } = useData();
 
@@ -72,6 +73,12 @@ export default function PurchaseEntryModal() {
     () => formatDateForDisplay(selectedDate),
     [selectedDate]
   );
+
+  useEffect(() => {
+    if (params.vendorId) {
+      setSelectedVendorId(String(params.vendorId));
+    }
+  }, [params.vendorId]);
 
   const vendorOptions = useMemo(
     () =>

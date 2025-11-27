@@ -21,6 +21,19 @@ export default function RootLayout() {
     initCrashLogger();
   }, []);
 
+  useEffect(() => {
+    const originalShow = Toast.show;
+    // Wrap Toast.show to enforce a shorter default visibility
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    Toast.show = ((options: any) => {
+      const next = { visibilityTime: 2000, ...options };
+      return originalShow(next);
+    }) as typeof Toast.show;
+    return () => {
+      Toast.show = originalShow;
+    };
+  }, []);
+
   return (
     <ErrorBoundary>
       <SafeAreaProvider>
@@ -467,6 +480,5 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
   },
 });
-
 
 

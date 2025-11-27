@@ -213,7 +213,12 @@ export default function VendorsScreen() {
               <View style={styles.vendorActions}>
                 <TouchableOpacity
                   style={styles.secondaryAction}
-                  onPress={() => router.push('/modals/purchase-entry')}
+                  onPress={() =>
+                    router.push({
+                      pathname: '/modals/purchase-entry',
+                      params: { vendorId: String(vendor.id) },
+                    })
+                  }
                   activeOpacity={0.9}
                 >
                   <Ionicons name="bag-handle-outline" size={16} color="#2563eb" />

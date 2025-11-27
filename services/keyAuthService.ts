@@ -183,7 +183,7 @@ export async function getPersistedSession(): Promise<AuthenticatedUser | null> {
 /**
  * Persist session to secure storage
  */
-async function persistSession(user: AuthenticatedUser): Promise<void> {
+export async function persistSession(user: AuthenticatedUser): Promise<void> {
   await SecureStore.setItemAsync(SESSION_USER_KEY, JSON.stringify(user));
   await SecureStore.setItemAsync(ACCESS_KEY_KEY, user.accessKey);
 }

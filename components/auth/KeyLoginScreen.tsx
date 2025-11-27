@@ -22,7 +22,6 @@ import { spacing, radii, textStyles } from '../../theme/tokens';
 
 const AVAILABLE_LANGUAGES: Array<{ code: Language; label: string }> = [
   { code: 'english', label: 'English' },
-  { code: 'urdu', label: 'اردو' },
 ];
 
 export const KeyLoginScreen: React.FC = () => {

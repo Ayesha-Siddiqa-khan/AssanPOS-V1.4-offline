@@ -12,6 +12,7 @@ import {
   KeyboardAvoidingView,
   Alert,
   PermissionsAndroid,
+  Vibration,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -31,6 +32,7 @@ import { ScanModeToggle, ScanMode } from '../../components/ui/ScanModeToggle';
 import { db } from '../../lib/database';
 
 const PRODUCT_SELECTION_BARCODE_TYPES: BarcodeType[] = ['ean13', 'code128', 'upc_a', 'upc_e', 'code39', 'code93'];
+const SCAN_REENABLE_DELAY_MS = 4000;
 
 const normalizeSearchText = (text: string) =>
   text
@@ -627,8 +629,9 @@ export default function ProductSelectionModal() {
     if (!canScanBarcode) {
       return;
     }
+    setCanScanBarcode(false);
+    Vibration.vibrate(50);
     if (!multiScanMode) {
-      setCanScanBarcode(false);
       setShowCamera(false);
       setShowBarcodeModal(false);
     }
@@ -709,7 +712,7 @@ export default function ProductSelectionModal() {
 
     // Re-enable scanning after a short delay when multi-scan is on
     if (multiScanMode) {
-      setTimeout(() => setCanScanBarcode(true), 400);
+      setTimeout(() => setCanScanBarcode(true), SCAN_REENABLE_DELAY_MS);
     }
   };
 
@@ -1103,8 +1106,33 @@ export default function ProductSelectionModal() {
               style={styles.advancedButton}
               onPress={() => setIsAdvancedOptionsVisible(true)}
               accessibilityLabel={t('Advanced options')}
+          >
+            <Ionicons name="options-outline" size={20} color="#2563eb" />
+          </TouchableOpacity>
+        </View>
+          <View style={styles.multiScanRow}>
+            <TouchableOpacity
+              onPress={() => setMultiScanMode((prev) => !prev)}
+              style={[
+                styles.searchActionButton,
+                styles.multiScanStandalone,
+                multiScanMode && styles.searchActionButtonActive,
+              ]}
+              activeOpacity={0.8}
             >
-              <Ionicons name="options-outline" size={20} color="#2563eb" />
+              <Ionicons
+                name="repeat"
+                size={18}
+                color={multiScanMode ? '#2563eb' : '#475569'}
+              />
+              <Text
+                style={[
+                  styles.searchActionText,
+                  multiScanMode && styles.searchActionTextActive,
+                ]}
+              >
+                {t('Multi-scan')}
+              </Text>
             </TouchableOpacity>
           </View>
           <View style={styles.searchContainer}>
@@ -1149,28 +1177,6 @@ export default function ProductSelectionModal() {
               <Ionicons name="close-circle" size={20} color="#9ca3af" />
             </TouchableOpacity>
           )}
-          <TouchableOpacity
-            onPress={() => setMultiScanMode((prev) => !prev)}
-            style={[
-              styles.searchActionButton,
-              multiScanMode && styles.searchActionButtonActive,
-            ]}
-            activeOpacity={0.8}
-          >
-            <Ionicons
-              name="repeat"
-              size={18}
-              color={multiScanMode ? '#2563eb' : '#475569'}
-            />
-            <Text
-              style={[
-                styles.searchActionText,
-                multiScanMode && styles.searchActionTextActive,
-              ]}
-            >
-              {t('Multi-scan')}
-            </Text>
-          </TouchableOpacity>
           {/* Barcode Scanner Icon */}
           <TouchableOpacity
             onPress={() => {
@@ -2197,6 +2203,16 @@ const styles = StyleSheet.create({
     color: '#2563eb',
     fontWeight: '700',
   },
+  multiScanRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    marginBottom: 8,
+  },
+  multiScanStandalone: {
+    marginLeft: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
   inlineLink: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2836,7 +2852,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(15, 23, 42, 0.45)',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: 16,
   },
   modalScrollContent: {
     width: '100%',
@@ -2845,8 +2861,8 @@ const styles = StyleSheet.create({
     flexGrow: 0,
   },
   modalCard: {
-    width: '100%',
-    maxWidth: 400,
+    width: '94%',
+    maxWidth: 360,
     backgroundColor: '#ffffff',
     borderRadius: 16,
     padding: 20,

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Modal, Alert, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Modal, Alert, TextInput, Vibration } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
 import { useRouter } from 'expo-router';
@@ -302,6 +302,7 @@ export default function PurchaseEntryModal() {
     if (!canScanBarcode || !value) {
       return;
     }
+    Vibration.vibrate(50);
     console.log('[DEBUG] purchase entry scan:', value);
     Toast.show({ type: 'info', text1: 'Scanned (purchase entry)', text2: value });
     setCanScanBarcode(false);

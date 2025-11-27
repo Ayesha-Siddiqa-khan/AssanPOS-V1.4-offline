@@ -13,6 +13,7 @@ import {
   getPersistedSession,
   checkUserStatus,
   logout as logoutService,
+  persistSession,
 } from '../services/keyAuthService';
 
 interface AuthContextValue {
@@ -21,6 +22,7 @@ interface AuthContextValue {
   loginWithAccessKey: (accessKey: string) => Promise<AuthenticatedUser | null>;
   loginWithBiometric: (user: AuthenticatedUser) => void;
   logout: () => Promise<void>;
+  updateUserName: (nextName: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -145,6 +147,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(user);
   }, []);
 
+  const updateUserName = useCallback(
+    async (nextName: string) => {
+      setUser((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        const updated = { ...prev, name: nextName.trim() || prev.name };
+        persistSession(updated).catch((error) =>
+          console.warn('Failed to persist updated user name', error)
+        );
+        return updated;
+      });
+    },
+    []
+  );
+
   const logout = useCallback(async () => {
     await logoutService();
     setUser(null);
@@ -158,6 +176,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loginWithAccessKey,
         loginWithBiometric,
         logout,
+        updateUserName,
       }}
     >
       {children}

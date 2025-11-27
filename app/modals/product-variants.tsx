@@ -10,6 +10,7 @@ import {
   Modal,
   Alert,
   TextInput,
+  Vibration,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -265,6 +266,7 @@ export default function ProductVariantsModal() {
       return;
     }
     setCanScanBarcode(false);
+    Vibration.vibrate(50);
     console.log('[DEBUG] add variant scan:', value);
     Toast.show({ type: 'info', text1: 'Scanned (add variant)', text2: value });
     const digitsOnly = value.replace(/\D/g, '');

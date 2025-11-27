@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   Modal,
   ActivityIndicator,
+  Vibration,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -187,6 +188,7 @@ export default function ProductEntryModal() {
   const handleBarcodeScanned = (data: string) => {
     if (!canScanBarcode || !data) return;
     setCanScanBarcode(false);
+    Vibration.vibrate(50);
     console.log('[DEBUG] add product scan:', data);
     Toast.show({ type: 'info', text1: 'Scanned (add product)', text2: data });
     setBarcode(data);

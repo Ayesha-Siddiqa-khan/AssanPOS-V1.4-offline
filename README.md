@@ -11,7 +11,7 @@ A comprehensive Point of Sale application for hardware shops built with React Na
 - ✅ Daily expenditure tracking (8 categories)
 - ✅ Sales history and analytics
 - ✅ Offline-first with SQLite database
-- ✅ Bilingual support (English/Urdu)
+- ✅ English-only UI (Urdu removed)
 - ✅ Pakistani Rupees (Rs.) currency
 - ✅ 11-digit Pakistani phone number validation
 
@@ -24,6 +24,7 @@ A comprehensive Point of Sale application for hardware shops built with React Na
 - **NativeWind** - Tailwind CSS for React Native
 - **TypeScript** - Type safety
 - **React Native Chart Kit** - Charts and analytics
+- **expo-camera** / **expo-sharing** / **expo-print** - Scanning, sharing, PDF
 
 ## Prerequisites
 
@@ -53,6 +54,12 @@ A comprehensive Point of Sale application for hardware shops built with React Na
    - Press `i` for iOS Simulator (macOS only)
    - Press `a` for Android Emulator
    - Scan QR code with Expo Go app on physical device
+
+## Quick usage tips
+
+- **Barcode scan behavior**: In Product Selection, instant-add mode auto-adds scanned items to the cart; manual mode fills the search box so you can review before adding. Multi-scan keeps the camera open with a short delay to avoid double reads.
+- **Share receipts**: After a sale, tap Share PDF or WhatsApp from the success modal; reports/export use the same PDF helpers.
+- **Inventory checks**: Inventory tab supports barcode search; stock adjustments also scan with vibration feedback on each read.
 
 ## Project Structure
 
@@ -249,7 +256,7 @@ npx expo start --android
 - ✅ Daily expenditure tracking
 - ✅ Sales history
 - ✅ Reports & analytics
-- ✅ Bilingual support (English/Urdu)
+- ✅ English-only UI
 - ✅ Offline database
 - ✅ Data backup/restore
 - ✅ Pakistani phone number validation
@@ -308,5 +315,3 @@ For issues or questions about the React Native version, refer to:
 - [Expo Documentation](https://docs.expo.dev/)
 - [React Native Documentation](https://reactnative.dev/)
 - [NativeWind Documentation](https://www.nativewind.dev/)
-
-

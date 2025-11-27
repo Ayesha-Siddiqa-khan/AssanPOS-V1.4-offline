@@ -98,7 +98,7 @@ const currencyFormatter = new Intl.NumberFormat('en-PK', {
 const CACHE_SCHEDULE_KEY = 'pos.cacheSchedule';
 
 export default function SettingsScreen() {
-  const { user: currentUser, logout } = useAuth();
+  const { user: currentUser, logout, updateUserName } = useAuth();
   const { t, language, setLanguage } = useLanguage();
   const { profile: shopProfile, saveProfile: saveShopProfile } = useShop();
   const { clearProducts, products, jazzCashProfitSettings, refreshData } = useData();
@@ -149,6 +149,8 @@ export default function SettingsScreen() {
   const [shopOwner, setShopOwner] = useState('');
   const [shopPhone, setShopPhone] = useState('');
   const [isSavingShop, setIsSavingShop] = useState(false);
+  const [currentUserName, setCurrentUserName] = useState('');
+  const { updateUserName } = useAuth();
   
   // Biometric authentication state
   const [biometricEnabled, setBiometricEnabled] = useState(false);
@@ -164,7 +166,6 @@ export default function SettingsScreen() {
     shopPhone !== shopProfile.phoneNumber;
   const languageOptions: Array<{ code: Language; label: string }> = [
     { code: 'english', label: 'English' },
-    { code: 'urdu', label: 'اردو' },
   ];
   const autoBackupIntervals = [
     { label: t('Every 12 hours'), value: 12 },
@@ -195,6 +196,10 @@ export default function SettingsScreen() {
     setShopOwner(shopProfile.ownerName);
     setShopPhone(shopProfile.phoneNumber);
   }, [shopProfile]);
+
+  useEffect(() => {
+    setCurrentUserName(currentUser?.name ?? '');
+  }, [currentUser?.name]);
 
   const checkBiometricAvailability = async () => {
     try {
@@ -1259,6 +1264,23 @@ export default function SettingsScreen() {
                 <Text style={styles.userRole}>{currentUser?.isTrial ? 'Trial User' : 'User'}</Text>
               </View>
             </View>
+            <Input
+              label={t('Edit name')}
+              value={currentUserName}
+              onChangeText={setCurrentUserName}
+              placeholder={t('Enter your display name')}
+              containerStyle={styles.currentUserInput}
+            />
+            <Button
+              onPress={() => {
+                if (currentUserName.trim()) {
+                  updateUserName(currentUserName.trim());
+                }
+              }}
+              style={styles.saveUserNameButton}
+            >
+              {t('Save Name')}
+            </Button>
             <Button variant="outline" onPress={handleLogout} style={styles.logoutButton}>
               {t('Logout')}
             </Button>
@@ -2021,8 +2043,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   header: {
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
     backgroundColor: '#2563eb',
   },
   headerTitle: {
@@ -2136,6 +2158,12 @@ const styles = StyleSheet.create({
   userRole: {
     fontSize: 14,
     color: '#64748b',
+  },
+  currentUserInput: {
+    marginTop: 12,
+  },
+  saveUserNameButton: {
+    marginTop: 8,
   },
   logoutButton: {
     marginTop: 8,

@@ -17,13 +17,20 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({
 }) => {
   const [language, setLanguageState] = useState<Language>('english');
 
+  const normalizeLanguage = useCallback(
+    (value: Language | string | null | undefined): Language => {
+      return value === 'english' ? 'english' : 'english';
+    },
+    []
+  );
+
   useEffect(() => {
     let isMounted = true;
     (async () => {
       try {
         const storedLanguage = await db.getSetting('language');
-        if (storedLanguage && isMounted) {
-          setLanguageState(storedLanguage as Language);
+        if (isMounted) {
+          setLanguageState(normalizeLanguage(storedLanguage as Language));
         }
       } catch (error) {
         console.warn('Failed to restore language preference', error);
@@ -33,14 +40,15 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [normalizeLanguage]);
 
   const setLanguage = useCallback((nextLanguage: Language) => {
-    setLanguageState(nextLanguage);
-    db.setSetting('language', nextLanguage).catch((error) => {
+    const normalized = normalizeLanguage(nextLanguage);
+    setLanguageState(normalized);
+    db.setSetting('language', normalized).catch((error) => {
       console.warn('Failed to persist language preference', error);
     });
-  }, []);
+  }, [normalizeLanguage]);
 
   const t = (english: string, fallbackUrdu?: string) => {
     return translate(language, english, fallbackUrdu);

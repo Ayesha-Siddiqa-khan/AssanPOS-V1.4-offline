@@ -18,7 +18,6 @@ import { useLanguage, Language } from '../../contexts/LanguageContext';
 
 const AVAILABLE_LANGUAGES: Array<{ code: Language; label: string }> = [
   { code: 'english', label: 'English' },
-  { code: 'urdu', label: '\u0627\u0631\u062f\u0648' },
 ];
 
 export const LoginScreen: React.FC = () => {

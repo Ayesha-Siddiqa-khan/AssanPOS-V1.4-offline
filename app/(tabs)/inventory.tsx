@@ -12,6 +12,7 @@ import {
   Modal,
   PermissionsAndroid,
   KeyboardAvoidingView,
+  Vibration,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -187,6 +188,7 @@ export default function InventoryScreen() {
       return;
     }
     setCanScanBarcode(false);
+    Vibration.vibrate(50);
 
     try {
       console.log('[DEBUG] inventory search scan:', value);
@@ -347,6 +349,7 @@ export default function InventoryScreen() {
       if (!stockScannerTarget || !canScanStockAdjust) {
         return;
       }
+      Vibration.vibrate(50);
       console.log('[DEBUG] stock adjust scan:', value);
       Toast.show({ type: 'info', text1: 'Scanned (stock adjust)', text2: value });
       setCanScanStockAdjust(false);
@@ -2758,7 +2761,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
-
 
 
 

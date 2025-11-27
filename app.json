@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "AsaanPOS",
+    "slug": "asaanpos",
+    "version": "1.0.0",
+    "scheme": "asaanpos",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.lakhwera001.asaanpos",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/favico.png"
+    },
+    "plugins": [
+      "expo-router"
+    ],
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "23775e65-7856-42b4-9c49-38d72c93b684"
+      },
+      "EXPO_PUBLIC_SUPABASE_URL": "https://qoomcnoslubpqpomzewb.supabase.co",
+      "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFvb21jbm9zbHVicHFwb216ZXdiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM1ODQxNzIsImV4cCI6MjA3OTE2MDE3Mn0.ArgMfh0DbvwkBVtRf3ikJVvRxCyMdfqUQwSh6KARApc",
+      "EXPO_PUBLIC_SUPABASE_COMPANY_KEY": "",
+      "EXPO_PUBLIC_SUPABASE_SNAPSHOT_TABLE": "",
+      "EXPO_PUBLIC_SUPABASE_EXPORT_BUCKET": ""
+    }
+  }
+}

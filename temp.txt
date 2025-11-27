@@ -1,0 +1,80 @@
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  TextInput,
+  Alert,
+  Modal,
+  ActivityIndicator,
+  Platform,
+} from 'react-native';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import Toast from 'react-native-toast-message';
+import { useAuth } from '../../contexts/AuthContext';
+import { useLanguage, Language } from '../../contexts/LanguageContext';
+import { useShop } from '../../contexts/ShopContext';
+import { Button } from '../../components/ui/Button';
+import { Badge } from '../../components/ui/Badge';
+import { db } from '../../lib/database';
+import { hashPin } from '../../services/authService';
+import { synchronizeNow } from '../../services/syncService';
+import {
+  importProductsFromCsv,
+  exportDataSnapshot,
+  exportInventorySnapshotToDevice,
+  getLatestInventoryBackupFromDownloads,
+  getLastInventoryBackupMeta,
+  promptForDownloadsDirectory,
+} from '../../services/importExportService';
+import { createDatabaseBackup, shareBackupToCloud, listBackups } from '../../services/backupService';
+import { formatDateForDisplay } from '../../lib/date';
+
+const getDefaultBackupFileName = () => {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `inventory-backup-${y}-${m}-${d}.csv`;
+};
+
+type User = {
+  id: number;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  roleId: number;
+  isActive: boolean;
+  lastLoginAt?: string | null;
+};
+
+type Role = {
+  id: number;
+  name: string;
+  permissions: Record<string, boolean>;
+};
+
+type InventoryBackupInfo = {
+  fileName: string;
+  uri: string;
+  savedAt: string;
+  location: 'downloads' | 'internal';
+};
+
+export default function SettingsScreen() {
+  const { user: currentUser, logout, hasPermission } = useAuth();
+  const { t, language, setLanguage } = useLanguage();
+  const { profile: shopProfile, saveProfile: saveShopProfile } = useShop();
+  
+  const [users, setUsers] = useState<User[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  
+  // Form state

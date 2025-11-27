@@ -150,7 +150,6 @@ export default function SettingsScreen() {
   const [shopPhone, setShopPhone] = useState('');
   const [isSavingShop, setIsSavingShop] = useState(false);
   const [currentUserName, setCurrentUserName] = useState('');
-  const { updateUserName } = useAuth();
   
   // Biometric authentication state
   const [biometricEnabled, setBiometricEnabled] = useState(false);

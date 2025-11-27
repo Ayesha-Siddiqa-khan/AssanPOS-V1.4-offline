@@ -100,6 +100,7 @@ export default function ProductSelectionModal() {
   const [showRandomPurchase, setShowRandomPurchase] = useState(false);
   const [showPricingAdjustments, setShowPricingAdjustments] = useState(false);
   const [showCustomProductModal, setShowCustomProductModal] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState<'net' | 'due'>('net');
   const [customName, setCustomName] = useState('');
   const [customPrice, setCustomPrice] = useState('');
   const [customQuantity, setCustomQuantity] = useState('1');
@@ -465,7 +466,7 @@ export default function ProductSelectionModal() {
   );
 
   const discountAmount = Math.min(discount, subtotal);
-  const randomPurchaseAmount = Math.max(0, Number(randomPurchaseInput) || 0);
+  const randomPurchaseAmount = Number(randomPurchaseInput) || 0;
   const taxableAmount = Math.max(subtotal + randomPurchaseAmount - discountAmount, 0);
   const taxAmount = Number(((taxableAmount * taxRate) / 100).toFixed(2));
   const totalDue = taxableAmount + taxAmount;
@@ -810,8 +811,10 @@ export default function ProductSelectionModal() {
       const creditAvailable = Math.max(selectedCustomer?.credit ?? 0, 0);
       const creditApplied = Math.min(totalDue, creditAvailable);
       const remainingAfterCredit = totalDue - creditApplied;
+      const remainingForRecord = paymentStatus === 'net' ? 0 : remainingAfterCredit;
+      const paidForRecord = paymentStatus === 'net' ? totalDue : remainingAfterCredit;
       const paymentMethod = creditApplied > 0 ? 'Customer Credit' : 'Cash';
-      const status = remainingAfterCredit > 0 ? 'Due' : 'Paid';
+      const status = paymentStatus === 'net' ? 'Paid' : remainingAfterCredit > 0 ? 'Due' : 'Paid';
       const walkInName = walkInCustomerName.trim();
       const customerPayload = selectedCustomer
         ? {
@@ -861,10 +864,10 @@ export default function ProductSelectionModal() {
           tax: taxAmount,
           total: totalDue,
           creditUsed: creditApplied,
-          amountAfterCredit: remainingAfterCredit,
-          paidAmount: remainingAfterCredit,
+          amountAfterCredit: remainingForRecord,
+          paidAmount: paidForRecord,
           changeAmount: 0,
-          remainingBalance: remainingAfterCredit,
+          remainingBalance: remainingForRecord,
           paymentMethod,
           dueDate: undefined,
           date,
@@ -923,7 +926,7 @@ export default function ProductSelectionModal() {
       const creditApplied = Math.min(totalDue, creditAvailable);
       const remainingAfterCredit = totalDue - creditApplied;
       const paymentMethod = creditApplied > 0 ? 'Customer Credit' : 'Cash';
-      const status = remainingAfterCredit > 0 ? 'Due' : 'Paid';
+      const status = paymentStatus === 'net' ? 'Paid' : remainingAfterCredit > 0 ? 'Due' : 'Paid';
       const walkInName = walkInCustomerName.trim();
       const customerPayload = selectedCustomer
         ? {
@@ -1102,39 +1105,14 @@ export default function ProductSelectionModal() {
               <Text style={styles.sectionTitle}>{t('Products')}</Text>
               <Text style={styles.subSectionLabel}>{t('Search & add products')}</Text>
             </View>
-            <TouchableOpacity
-              style={styles.advancedButton}
-              onPress={() => setIsAdvancedOptionsVisible(true)}
-              accessibilityLabel={t('Advanced options')}
+          <TouchableOpacity
+            style={styles.advancedButton}
+            onPress={() => setIsAdvancedOptionsVisible(true)}
+            accessibilityLabel={t('Advanced options')}
           >
             <Ionicons name="options-outline" size={20} color="#2563eb" />
           </TouchableOpacity>
         </View>
-          <View style={styles.multiScanRow}>
-            <TouchableOpacity
-              onPress={() => setMultiScanMode((prev) => !prev)}
-              style={[
-                styles.searchActionButton,
-                styles.multiScanStandalone,
-                multiScanMode && styles.searchActionButtonActive,
-              ]}
-              activeOpacity={0.8}
-            >
-              <Ionicons
-                name="repeat"
-                size={18}
-                color={multiScanMode ? '#2563eb' : '#475569'}
-              />
-              <Text
-                style={[
-                  styles.searchActionText,
-                  multiScanMode && styles.searchActionTextActive,
-                ]}
-              >
-                {t('Multi-scan')}
-              </Text>
-            </TouchableOpacity>
-          </View>
           <View style={styles.searchContainer}>
             <Ionicons name="search" size={20} color="#9ca3af" style={styles.searchIcon} />
             <TextInput
@@ -1188,13 +1166,39 @@ export default function ProductSelectionModal() {
           >
             <Ionicons name="barcode-outline" size={22} color="#7c3aed" />
           </TouchableOpacity>
-          {/* Voice Search Icon */}
-          <TouchableOpacity
-            onPress={handleVoiceSearch}
-            style={styles.searchActionButton}
-          >
-            <Ionicons name="mic-outline" size={22} color="#10b981" />
-          </TouchableOpacity>
+          </View>
+          <View style={styles.inlineLinkRow}>
+            <TouchableOpacity
+              style={styles.inlineLink}
+              activeOpacity={0.8}
+              onPress={() => setShowCustomProductModal(true)}
+            >
+              <Ionicons name="add-circle-outline" size={16} color="#2563eb" />
+              <Text style={styles.inlineLinkText}>{t('Add custom product')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setMultiScanMode((prev) => !prev)}
+              style={[
+                styles.searchActionButton,
+                styles.multiScanStandalone,
+                multiScanMode && styles.searchActionButtonActive,
+              ]}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name="repeat"
+                size={18}
+                color={multiScanMode ? '#2563eb' : '#475569'}
+              />
+              <Text
+                style={[
+                  styles.searchActionText,
+                  multiScanMode && styles.searchActionTextActive,
+                ]}
+              >
+                {t('Multi-scan')}
+              </Text>
+            </TouchableOpacity>
           </View>
 
           {/* Search suggestions dropdown - right below search input */}
@@ -1212,15 +1216,6 @@ export default function ProductSelectionModal() {
               ))}
             </View>
           )}
-
-          <TouchableOpacity
-            style={styles.inlineLink}
-            activeOpacity={0.8}
-            onPress={() => setShowCustomProductModal(true)}
-          >
-            <Ionicons name="add-circle-outline" size={16} color="#2563eb" />
-            <Text style={styles.inlineLinkText}>{t('Add custom product')}</Text>
-          </TouchableOpacity>
 
           {recentProducts.length > 0 && !searchQuery && (
             <TouchableOpacity
@@ -1430,8 +1425,57 @@ export default function ProductSelectionModal() {
                         </TouchableOpacity>
                       </View>
                     </View>
-                  </View>
+              </View>
                 ))
+              )}
+
+              {isInstantAddMode && (
+                <View style={styles.paymentStatusRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.paymentOption,
+                      paymentStatus === 'net' && styles.paymentOptionActive,
+                    ]}
+                    onPress={() => setPaymentStatus('net')}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons
+                      name={paymentStatus === 'net' ? 'radio-button-on' : 'radio-button-off'}
+                      size={16}
+                      color={paymentStatus === 'net' ? '#2563eb' : '#94a3b8'}
+                    />
+                    <Text
+                      style={[
+                        styles.paymentOptionText,
+                        paymentStatus === 'net' && styles.paymentOptionTextActive,
+                      ]}
+                    >
+                      {t('Net')}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.paymentOption,
+                      paymentStatus === 'due' && styles.paymentOptionActive,
+                    ]}
+                    onPress={() => setPaymentStatus('due')}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons
+                      name={paymentStatus === 'due' ? 'radio-button-on' : 'radio-button-off'}
+                      size={16}
+                      color={paymentStatus === 'due' ? '#2563eb' : '#94a3b8'}
+                    />
+                    <Text
+                      style={[
+                        styles.paymentOptionText,
+                        paymentStatus === 'due' && styles.paymentOptionTextActive,
+                      ]}
+                    >
+                      {t('Due')}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               )}
 
               <View style={styles.totals}>
@@ -2211,13 +2255,18 @@ const styles = StyleSheet.create({
   multiScanStandalone: {
     marginLeft: 0,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 6,
   },
   inlineLink: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginTop: 8,
+  },
+  inlineLinkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
   },
   inlineLinkText: {
     fontSize: 13,
@@ -2655,6 +2704,36 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#2563eb',
+  },
+  paymentStatusRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  paymentOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    backgroundColor: '#f8fafc',
+  },
+  paymentOptionActive: {
+    borderColor: '#2563eb',
+    backgroundColor: '#eef2ff',
+  },
+  paymentOptionText: {
+    fontSize: 14,
+    color: '#475569',
+    fontWeight: '500',
+  },
+  paymentOptionTextActive: {
+    color: '#1d4ed8',
+    fontWeight: '700',
   },
   extraAmountLink: {
     flexDirection: 'row',

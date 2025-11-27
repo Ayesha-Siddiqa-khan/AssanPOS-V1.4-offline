@@ -149,7 +149,6 @@ export default function SettingsScreen() {
   const [shopOwner, setShopOwner] = useState('');
   const [shopPhone, setShopPhone] = useState('');
   const [isSavingShop, setIsSavingShop] = useState(false);
-  const [currentUserName, setCurrentUserName] = useState('');
   
   // Biometric authentication state
   const [biometricEnabled, setBiometricEnabled] = useState(false);
@@ -195,10 +194,6 @@ export default function SettingsScreen() {
     setShopOwner(shopProfile.ownerName);
     setShopPhone(shopProfile.phoneNumber);
   }, [shopProfile]);
-
-  useEffect(() => {
-    setCurrentUserName(currentUser?.name ?? '');
-  }, [currentUser?.name]);
 
   const checkBiometricAvailability = async () => {
     try {
@@ -1263,23 +1258,6 @@ export default function SettingsScreen() {
                 <Text style={styles.userRole}>{currentUser?.isTrial ? 'Trial User' : 'User'}</Text>
               </View>
             </View>
-            <Input
-              label={t('Edit name')}
-              value={currentUserName}
-              onChangeText={setCurrentUserName}
-              placeholder={t('Enter your display name')}
-              containerStyle={styles.currentUserInput}
-            />
-            <Button
-              onPress={() => {
-                if (currentUserName.trim()) {
-                  updateUserName(currentUserName.trim());
-                }
-              }}
-              style={styles.saveUserNameButton}
-            >
-              {t('Save Name')}
-            </Button>
             <Button variant="outline" onPress={handleLogout} style={styles.logoutButton}>
               {t('Logout')}
             </Button>
@@ -2157,12 +2135,6 @@ const styles = StyleSheet.create({
   userRole: {
     fontSize: 14,
     color: '#64748b',
-  },
-  currentUserInput: {
-    marginTop: 12,
-  },
-  saveUserNameButton: {
-    marginTop: 8,
   },
   logoutButton: {
     marginTop: 8,

@@ -14,13 +14,24 @@ import { formatDateForDisplay } from '../../lib/date';
 import { spacing, radii, textStyles } from '../../theme/tokens';
 
 type StatusFilterKey = 'all' | 'paid' | 'due' | 'partial';
-const formatCurrency = (value: number) => `Rs. ${value.toLocaleString()}`;
+const formatCurrency = (value: number | null | undefined) => {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) {
+    return 'Rs. 0';
+  }
+  try {
+    return `Rs. ${amount.toLocaleString()}`;
+  } catch {
+    return `Rs. ${amount}`;
+  }
+};
 
 export default function SalesScreen() {
-  const { sales } = useData();
+  const { sales: rawSales } = useData();
   const { t } = useLanguage();
   const router = useRouter();
   const { resetSale } = usePos();
+  const sales = rawSales ?? [];
 
   const [statusFilter, setStatusFilter] = useState<StatusFilterKey>('all');
   const listOpacity = useRef(new Animated.Value(1)).current;
@@ -58,7 +69,10 @@ export default function SalesScreen() {
     return sales.filter((sale) => sale.status === 'Partially Paid');
   }, [sales, statusFilter]);
 
-  const totalSales = filteredSales.reduce((sum, sale) => sum + sale.total, 0);
+  const totalSales = filteredSales.reduce(
+    (sum, sale) => sum + (Number(sale.total) || 0),
+    0
+  );
 
   const groupedSales = useMemo(
     () =>
@@ -210,7 +224,7 @@ export default function SalesScreen() {
               <View key={groupLabel} style={styles.groupSection}>
                 <Text style={styles.groupLabel}>{groupLabel}</Text>
                 {groupSales.map((sale) => {
-                  const remainingBalance = sale.remainingBalance ?? 0;
+                  const remainingBalance = Number(sale.remainingBalance ?? 0) || 0;
                   const hasDue = remainingBalance > 0;
                   const statusVariant =
                     sale.status === 'Paid'
@@ -578,6 +592,3 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
 });
-
-
-

@@ -32,9 +32,10 @@ const getInitial = (name?: string) => (name ? name.trim().charAt(0).toUpperCase(
 
 export default function VendorsScreen() {
   const router = useRouter();
-  const { vendors, deleteVendor } = useData();
+  const { vendors: rawVendors, deleteVendor } = useData();
   const { t } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
+  const vendors = rawVendors ?? [];
 
   const summary = useMemo(() => {
     const totalVendors = vendors.length;

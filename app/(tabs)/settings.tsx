@@ -89,11 +89,25 @@ type AutoBackupSetting = {
   intervalHours: number;
 };
 
-const currencyFormatter = new Intl.NumberFormat('en-PK', {
-  style: 'currency',
-  currency: 'PKR',
-  maximumFractionDigits: 0,
-});
+const createCurrencyFormatter = () => {
+  try {
+    return new Intl.NumberFormat('en-PK', {
+      style: 'currency',
+      currency: 'PKR',
+      maximumFractionDigits: 0,
+    });
+  } catch (error) {
+    console.warn('[Settings] Intl currency formatter unavailable, using fallback', error);
+    return {
+      format: (value: number | bigint) => {
+        const amount = Number(value) || 0;
+        return `Rs. ${amount.toLocaleString()}`;
+      },
+    } as Intl.NumberFormat;
+  }
+};
+
+const currencyFormatter = createCurrencyFormatter();
 
 const CACHE_SCHEDULE_KEY = 'pos.cacheSchedule';
 
@@ -101,7 +115,8 @@ export default function SettingsScreen() {
   const { user: currentUser, logout, updateUserName } = useAuth();
   const { t, language, setLanguage } = useLanguage();
   const { profile: shopProfile, saveProfile: saveShopProfile } = useShop();
-  const { clearProducts, products, jazzCashProfitSettings, refreshData } = useData();
+  const { clearProducts, products: rawProducts, jazzCashProfitSettings, refreshData } = useData();
+  const products = rawProducts ?? [];
   
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
@@ -327,7 +342,7 @@ export default function SettingsScreen() {
     if (Number.isNaN(date.getTime())) {
       return t('Never');
     }
-    return `${formatDateForDisplay(date)} · ${date.toLocaleTimeString()}`;
+    return `${formatDateForDisplay(date)} at ${date.toLocaleTimeString()}`;
   };
 
   const refreshBackupSummary = async () => {

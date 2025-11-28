@@ -33,11 +33,26 @@ import { Button } from '../../components/ui/Button';
 import { ScanModeToggle, ScanMode } from '../../components/ui/ScanModeToggle';
 import { spacing, radii, textStyles, breakpoints } from '../../theme/tokens';
 import { getLayoutSize } from '../../theme/layout';
-const currencyFormatter = new Intl.NumberFormat('en-PK', {
-  style: 'currency',
-  currency: 'PKR',
-  maximumFractionDigits: 0,
-});
+
+const createCurrencyFormatter = () => {
+  try {
+    return new Intl.NumberFormat('en-PK', {
+      style: 'currency',
+      currency: 'PKR',
+      maximumFractionDigits: 0,
+    });
+  } catch (error) {
+    console.warn('[Inventory] Intl currency formatter unavailable, using fallback', error);
+    return {
+      format: (value: number | bigint) => {
+        const amount = Number(value) || 0;
+        return `Rs. ${amount.toLocaleString()}`;
+      },
+    } as Intl.NumberFormat;
+  }
+};
+
+const currencyFormatter = createCurrencyFormatter();
 
 const INVENTORY_BARCODE_TYPES: BarcodeType[] = ['ean13', 'code128', 'upc_a', 'upc_e'];
 
@@ -2761,7 +2776,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
-
 
 
 

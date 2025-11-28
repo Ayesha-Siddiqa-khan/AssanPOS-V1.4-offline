@@ -94,6 +94,15 @@ export default function PaymentModal() {
     return () => clearTimeout(timer);
   }, [selectedCustomer]);
 
+  // Suggest available credit automatically without overriding user edits
+  useEffect(() => {
+    if (allowableCredit > 0 && !creditUsedInput) {
+      setCreditUsedInput(allowableCredit.toString());
+    } else if (allowableCredit === 0 && creditUsedInput) {
+      setCreditUsedInput('');
+    }
+  }, [allowableCredit, creditUsedInput]);
+
   const parsedAmountPaid = useMemo(() => {
     const normalized = amountPaidInput.replace(/[^0-9.]/g, '');
     const parsed = parseFloat(normalized);
@@ -390,14 +399,24 @@ export default function PaymentModal() {
             </Text>
           </View>
           <View>
-            <Text style={styles.inputLabel}>{t('Credit Used')}</Text>
+            <View style={styles.inputWithButton}>
+              <Text style={styles.inputLabel}>{t('Credit Used')}</Text>
+              {allowableCredit > 0 ? (
+                <TouchableOpacity
+                  style={styles.quickFillButton}
+                  onPress={() => setCreditUsedInput(allowableCredit.toString())}
+                >
+                  <Text style={styles.quickFillText}>Rs. {allowableCredit}</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
             <Input
               ref={creditUsedRef}
               value={creditUsedInput}
               keyboardType="numeric"
               onChangeText={setCreditUsedInput}
               editable={!!selectedCustomer}
-              placeholder="0"
+              placeholder={allowableCredit > 0 ? allowableCredit.toString() : '0'}
             />
           </View>
           <View style={styles.inputWithButton}>

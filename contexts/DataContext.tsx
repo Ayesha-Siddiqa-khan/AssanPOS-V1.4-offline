@@ -395,6 +395,9 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     };
   }, []);
 
+  const toArray = <T,>(value: any, fallback: T[] = []): T[] =>
+    Array.isArray(value) ? (value as T[]) : fallback;
+
   const loadAllData = async () => {
     let succeeded = false;
     try {
@@ -412,18 +415,25 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         db.getAllOwnerFundTransactions(),
       ]);
       
-      const customerList = Array.isArray(dbCustomers) ? (dbCustomers as Customer[]) : [];
+      const customerList = toArray<Customer>(dbCustomers);
+      const vendorList = toArray<Vendor>(dbVendors);
+      const purchaseList = toArray<Purchase>(dbPurchases);
+      const salesList = toArray<Sale>(dbSales);
+      const productList = toArray<Product>(dbProducts);
+      const creditTxnList = toArray<CreditTransaction>(dbCreditTxns);
+      const expenditureList = toArray<Expenditure>(dbExpenditures);
+      const jazzCashList = toArray<JazzCashTransaction>(dbJazzCash);
+      const ownerFundList = toArray<OwnerFundTransaction>(dbOwnerFunds);
+
       setCustomers(customerList.map(normalizeCustomerRecord));
-      setSales(dbSales as Sale[]);
-      setProducts(dbProducts as Product[]);
-      setCreditTransactions(dbCreditTxns as CreditTransaction[]);
-      const vendorList = Array.isArray(dbVendors) ? (dbVendors as Vendor[]) : [];
-      const purchaseList = Array.isArray(dbPurchases) ? (dbPurchases as Purchase[]) : [];
+      setSales(salesList);
+      setProducts(productList);
+      setCreditTransactions(creditTxnList);
       setVendors(vendorList.map(normalizeVendorRecord));
       setPurchases(purchaseList.map(normalizePurchaseRecord));
-      setExpenditures(dbExpenditures as Expenditure[]);
-      setJazzCashTransactions(dbJazzCash as JazzCashTransaction[]);
-      setOwnerFundTransactions(dbOwnerFunds as OwnerFundTransaction[]);
+      setExpenditures(expenditureList);
+      setJazzCashTransactions(jazzCashList);
+      setOwnerFundTransactions(ownerFundList);
 
       await notifyLowStock(dbProducts as Product[]).catch((error) => {
         console.warn('Failed to dispatch low stock notification', error);

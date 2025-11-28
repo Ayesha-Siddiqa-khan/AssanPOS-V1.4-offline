@@ -789,8 +789,18 @@ export default function PurchaseEntryModal() {
             options={PAYMENT_OPTIONS}
             label={t('Payment Method')}
           />
+          <View style={styles.inputWithButton}>
+            <Text style={styles.inputLabel}>{t('Paid Amount')}</Text>
+            {total > 0 ? (
+              <TouchableOpacity
+                style={styles.quickFillButton}
+                onPress={() => setPaidAmountInput(total.toString())}
+              >
+                <Text style={styles.quickFillText}>Rs. {total.toLocaleString()}</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
           <Input
-            label={t('Paid Amount')}
             value={paidAmountInput}
             onChangeText={setPaidAmountInput}
             keyboardType="numeric"
@@ -1013,6 +1023,29 @@ const styles = StyleSheet.create({
   pickerDoneLabel: {
     fontSize: 15,
     fontWeight: '600',
+    color: '#2563eb',
+  },
+  inputWithButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  inputLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  quickFillButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#2563eb',
+    backgroundColor: '#eef2ff',
+  },
+  quickFillText: {
+    fontSize: 12,
+    fontWeight: '700',
     color: '#2563eb',
   },
   sectionTitle: {

@@ -21,7 +21,7 @@ import { usePos } from '../../contexts/PosContext';
 import { useShop } from '../../contexts/ShopContext';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
-import { formatDateForDisplay } from '../../lib/date';
+import { formatDateForDisplay, formatTimeForDisplay } from '../../lib/date';
 
 function normalizePhone(value: string): string {
   return value.replace(/\D/g, '');
@@ -462,7 +462,7 @@ export default function HomeScreen() {
                       </Text>
                       <Text style={styles.saleDate}>
                         {formatDateForDisplay(sale.date)}
-                        {sale.time ? ` ${sale.time}` : ''}
+                        {sale.time ? ` ${formatTimeForDisplay(sale.time)}` : ''}
                       </Text>
                     </View>
                     <Badge variant={statusConfig.variant}>{statusConfig.label}</Badge>
@@ -1020,6 +1020,4 @@ const styles = StyleSheet.create({
     color: '#6b7280',
   },
 });
-
-
 

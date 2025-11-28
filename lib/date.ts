@@ -62,6 +62,18 @@ export const formatDateForDisplay = (
   return `${pad(parts.day)}-${pad(parts.month)}-${parts.year}`;
 };
 
+export const formatTimeForDisplay = (value?: string | null): string => {
+  if (!value) return '';
+  const [rawH = '0', rawM = '00', rawS] = value.split(':');
+  const hourNum = Number(rawH);
+  if (!Number.isFinite(hourNum)) return value;
+  const period = hourNum >= 12 ? 'PM' : 'AM';
+  const hour = hourNum % 12 === 0 ? 12 : hourNum % 12;
+  const minute = rawM.padStart(2, '0');
+  const seconds = rawS ? `:${rawS.padStart(2, '0')}` : '';
+  return `${hour}:${minute}${seconds} ${period}`;
+};
+
 export const formatDateTimeForDisplay = (
   date?: string | null,
   time?: string | null,
@@ -76,5 +88,6 @@ export const formatDateTimeForDisplay = (
     return formattedDate;
   }
 
-  return `${formattedDate} ${atLabel} ${time}`;
+  const formattedTime = formatTimeForDisplay(time);
+  return `${formattedDate} ${atLabel} ${formattedTime}`;
 };

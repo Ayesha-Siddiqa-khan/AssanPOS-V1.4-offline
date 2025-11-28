@@ -58,6 +58,11 @@ A comprehensive Point of Sale application for hardware shops built with React Na
 ## Quick usage tips
 
 - **Barcode scan behavior**: In Product Selection, instant-add mode auto-adds scanned items to the cart; manual mode fills the search box so you can review before adding. Multi-scan keeps the camera open with a short delay to avoid double reads.
+
+## Recent updates
+
+- All displayed times now use 12-hour format with AM/PM across the app and PDFs.
+- Vendor summary PDF includes purchase history with item snippets and a ledger section (Date, Type, Invoice No., Description, Debit, Credit, Balance) plus totals.
 - **Share receipts**: After a sale, tap Share PDF or WhatsApp from the success modal; reports/export use the same PDF helpers.
 - **Inventory checks**: Inventory tab supports barcode search; stock adjustments also scan with vibration feedback on each read.
 

@@ -49,6 +49,7 @@ export type ReceiptPayload = {
   lineItems: ReceiptLineItem[];
   changeAmount?: number;
   amountPaid?: number;
+  remainingBalance?: number;
 };
 
 export type StoreProfile = {
@@ -198,12 +199,20 @@ export async function generateReceiptHtml(payload: ReceiptPayload, profile: Stor
                 <td style="text-align:right;">${formatter.format(payload.total)}</td>
               </tr>
               ${
-                payload.amountPaid
+                Number.isFinite(payload?.amountPaid)
                   ? `<tr>
                       <td colspan="3">Paid</td>
-                      <td style="text-align:right;">${formatter.format(payload.amountPaid)}</td>
+                      <td style="text-align:right;">${formatter.format(payload.amountPaid ?? 0)}</td>
                     </tr>`
-                    : ''
+                  : ''
+              }
+              ${
+                Number.isFinite(payload?.remainingBalance) && (payload?.remainingBalance ?? 0) !== 0
+                  ? `<tr>
+                      <td colspan="3">Balance</td>
+                      <td style="text-align:right;">${formatter.format(payload?.remainingBalance ?? 0)}</td>
+                    </tr>`
+                  : ''
               }
               ${
                 payload.changeAmount
@@ -211,7 +220,7 @@ export async function generateReceiptHtml(payload: ReceiptPayload, profile: Stor
                       <td colspan="3">Change</td>
                       <td style="text-align:right;">${formatter.format(payload.changeAmount)}</td>
                     </tr>`
-                    : ''
+                  : ''
               }
             </tfoot>
         </table>

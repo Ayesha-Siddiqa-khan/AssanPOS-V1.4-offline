@@ -809,11 +809,17 @@ export default function ProductSelectionModal() {
       const date = now.toISOString().split('T')[0];
       const time = now.toTimeString().slice(0, 8);
       const creditAvailable = Math.max(selectedCustomer?.credit ?? 0, 0);
-      const creditApplied = Math.min(totalDue, creditAvailable);
+      const creditApplied =
+        paymentStatus === 'net' ? 0 : Math.min(totalDue, creditAvailable);
       const remainingAfterCredit = totalDue - creditApplied;
       const remainingForRecord = paymentStatus === 'net' ? 0 : remainingAfterCredit;
       const paidForRecord = paymentStatus === 'net' ? totalDue : remainingAfterCredit;
-      const paymentMethod = creditApplied > 0 ? 'Customer Credit' : 'Cash';
+      const paymentMethod =
+        paymentStatus === 'net'
+          ? 'Cash'
+          : creditApplied > 0
+          ? 'Customer Credit'
+          : 'Cash';
       const status = paymentStatus === 'net' ? 'Paid' : remainingAfterCredit > 0 ? 'Due' : 'Paid';
       const walkInName = walkInCustomerName.trim();
       const customerPayload = selectedCustomer
@@ -923,9 +929,15 @@ export default function ProductSelectionModal() {
       const date = now.toISOString().split('T')[0];
       const time = now.toTimeString().slice(0, 8);
       const creditAvailable = Math.max(selectedCustomer?.credit ?? 0, 0);
-      const creditApplied = Math.min(totalDue, creditAvailable);
+      const creditApplied =
+        paymentStatus === 'net' ? 0 : Math.min(totalDue, creditAvailable);
       const remainingAfterCredit = totalDue - creditApplied;
-      const paymentMethod = creditApplied > 0 ? 'Customer Credit' : 'Cash';
+      const paymentMethod =
+        paymentStatus === 'net'
+          ? 'Cash'
+          : creditApplied > 0
+          ? 'Customer Credit'
+          : 'Cash';
       const status = paymentStatus === 'net' ? 'Paid' : remainingAfterCredit > 0 ? 'Due' : 'Paid';
       const walkInName = walkInCustomerName.trim();
       const customerPayload = selectedCustomer
@@ -959,6 +971,9 @@ export default function ProductSelectionModal() {
             ]
           : [];
 
+      const remainingForRecord = paymentStatus === 'net' ? 0 : remainingAfterCredit;
+      const paidForRecord = paymentStatus === 'net' ? totalDue : remainingAfterCredit;
+
       await addSale({
         customer: customerPayload,
         cart: syntheticCart.map((item) => ({
@@ -976,10 +991,10 @@ export default function ProductSelectionModal() {
           tax: taxAmount,
           total: totalDue,
           creditUsed: creditApplied,
-          amountAfterCredit: remainingAfterCredit,
-          paidAmount: remainingAfterCredit,
+          amountAfterCredit: remainingForRecord,
+          paidAmount: paidForRecord,
           changeAmount: 0,
-          remainingBalance: remainingAfterCredit,
+          remainingBalance: remainingForRecord,
           paymentMethod,
           dueDate: undefined,
           date,

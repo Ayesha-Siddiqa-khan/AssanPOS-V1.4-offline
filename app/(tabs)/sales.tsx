@@ -10,7 +10,7 @@ import { usePos } from '../../contexts/PosContext';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
-import { formatDateForDisplay } from '../../lib/date';
+import { formatDateForDisplay, formatTimeForDisplay } from '../../lib/date';
 import { spacing, radii, textStyles } from '../../theme/tokens';
 
 type StatusFilterKey = 'all' | 'paid' | 'due' | 'partial';
@@ -268,7 +268,7 @@ export default function SalesScreen() {
                           </View>
                           <Text style={styles.saleDate}>
                             {formatDateForDisplay(sale.date)}
-                            {sale.time ? ` \u00b7 ${sale.time}` : ''}
+                            {sale.time ? ` \u00b7 ${formatTimeForDisplay(sale.time)}` : ''}
                           </Text>
                         </View>
 

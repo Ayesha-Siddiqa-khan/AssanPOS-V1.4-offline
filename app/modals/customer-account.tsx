@@ -24,7 +24,7 @@ import { Badge } from '../../components/ui/Badge';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useData } from '../../contexts/DataContext';
 import { useShop } from '../../contexts/ShopContext';
-import { formatDateTimeForDisplay } from '../../lib/date';
+import { formatDateTimeForDisplay, formatTimeForDisplay } from '../../lib/date';
 import { shareTextViaWhatsApp } from '../../lib/share';
 import {
   createReceiptPdf,
@@ -450,7 +450,7 @@ export default function CustomerAccountModal() {
       tax: Number(sale.tax ?? 0),
       total: Number(sale.total ?? 0),
       paymentMethod: sale.paymentMethod ?? t('N/A'),
-      createdAt: `${sale.date} ${sale.time}`,
+      createdAt: `${sale.date} ${formatTimeForDisplay(sale.time)}`,
       lineItems: Array.isArray(sale.cart)
         ? sale.cart.map((item: any) => ({
             name: item.variantName ? `${item.name} - ${item.variantName}` : item.name,
@@ -460,6 +460,7 @@ export default function CustomerAccountModal() {
         : [],
       changeAmount: sale.changeAmount,
       amountPaid: sale.paidAmount ?? sale.total ?? 0,
+      remainingBalance: Number(sale.remainingBalance ?? 0),
     };
 
     const store: StoreProfile = {
@@ -509,22 +510,176 @@ export default function CustomerAccountModal() {
 
   const handleShareAllPdf = async () => {
     try {
-      const pdfUris: string[] = [];
-      for (const sale of filteredSales) {
-        const { receipt, store } = buildReceiptPayload(sale);
-        const html = await generateReceiptHtml(receipt, store);
-        const pdf = await createReceiptPdf(html);
-        pdfUris.push(pdf.uri);
-      }
-      if (!pdfUris.length) {
+      if (!filteredSales.length) {
         Toast.show({ type: 'info', text1: t('No sales to share') });
         return;
       }
-      // Share the first PDF if multiple; Sharing API doesn't support multi-share on all platforms
-      await shareReceipt(pdfUris[0]);
-      if (pdfUris.length > 1) {
-        Toast.show({ type: 'info', text1: t('Shared first PDF'), text2: t('Multiple PDFs not supported in one share') });
-      }
+
+      const formatter = new Intl.NumberFormat(undefined, {
+        style: 'currency',
+        currency: 'PKR',
+      });
+
+      const rows = filteredSales
+        .map((sale) => {
+          const itemsCount =
+            sale.items ??
+            sale.cart?.reduce((sum: number, item: any) => sum + (item.quantity ?? 0), 0) ??
+            0;
+          const formattedTime = formatTimeForDisplay(sale.time);
+          const creditUsed = Number(sale.creditUsed ?? 0);
+          const itemDetails = Array.isArray(sale.cart)
+            ? sale.cart
+                .slice(0, 3)
+                .map((item: any) => {
+                  const qty = item.quantity ?? 0;
+                  const label = item.variantName ? `${item.name} - ${item.variantName}` : item.name;
+                  return `${label} x${qty}`;
+                })
+                .join(', ') + (sale.cart.length > 3 ? ` +${sale.cart.length - 3}` : '')
+            : '';
+          return `
+            <tr>
+              <td>${formatDateForDisplay(sale.date)} ${formattedTime}</td>
+              <td>${sale.customer?.name ?? t('Walk-in Customer')}</td>
+              <td style="text-align:right;">${formatter.format(sale.total ?? 0)}</td>
+              <td style="text-align:right;">${formatter.format(sale.paidAmount ?? 0)}</td>
+              <td style="text-align:right;">${formatter.format(creditUsed)}</td>
+              <td style="text-align:right;">${formatter.format(sale.remainingBalance ?? 0)}</td>
+              <td style="text-align:right;">${itemsCount}</td>
+              <td>${sale.paymentMethod ?? ''}</td>
+              <td>${itemDetails}</td>
+            </tr>
+          `;
+        })
+        .join('');
+
+      const dueCreditRows = filteredSales
+        .filter((sale) => (sale.creditUsed ?? 0) > 0 || (sale.remainingBalance ?? 0) > 0)
+        .map((sale) => {
+          const formattedTime = formatTimeForDisplay(sale.time);
+          const itemDetails = Array.isArray(sale.cart)
+            ? sale.cart
+                .slice(0, 2)
+                .map((item: any) => {
+                  const qty = item.quantity ?? 0;
+                  const label = item.variantName ? `${item.name} - ${item.variantName}` : item.name;
+                  return `${label} x${qty}`;
+                })
+                .join(', ') + (sale.cart.length > 2 ? ` +${sale.cart.length - 2}` : '')
+            : '';
+          return `
+            <tr>
+              <td>${formatDateForDisplay(sale.date)} ${formattedTime}</td>
+              <td>${sale.customer?.name ?? t('Walk-in Customer')}</td>
+              <td style="text-align:right;">${formatter.format(sale.total ?? 0)}</td>
+              <td style="text-align:right;">${formatter.format(sale.paidAmount ?? 0)}</td>
+              <td style="text-align:right;">${formatter.format(sale.creditUsed ?? 0)}</td>
+              <td style="text-align:right;">${formatter.format(sale.remainingBalance ?? 0)}</td>
+              <td>${sale.paymentMethod ?? ''}</td>
+              <td>${itemDetails}</td>
+            </tr>
+          `;
+        })
+        .join('');
+
+      const totals = filteredSales.reduce(
+        (acc, sale) => {
+          acc.total += Number(sale.total ?? 0);
+          acc.paid += Number(sale.paidAmount ?? 0);
+          acc.credit += Number(sale.creditUsed ?? 0);
+          acc.balance += Number(sale.remainingBalance ?? 0);
+          acc.items += Number(
+            sale.items ??
+              sale.cart?.reduce((sum: number, item: any) => sum + (item.quantity ?? 0), 0) ??
+              0
+          );
+          return acc;
+        },
+        { total: 0, paid: 0, credit: 0, balance: 0, items: 0 }
+      );
+
+      const html = `
+        <html>
+          <head>
+            <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 16px; color: #111; }
+              h2 { margin: 0 0 12px 0; }
+              .summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
+              .card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; background: #f8fafc; }
+              .label { font-size: 12px; color: #6b7280; }
+              .value { font-weight: 700; font-size: 14px; }
+              table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
+              th, td { border: 1px solid #e5e7eb; padding: 6px; text-align: left; }
+              th { background: #f8fafc; }
+              tfoot td { font-weight: 700; }
+            </style>
+          </head>
+          <body>
+            <h2>${t('Sales History')}</h2>
+            <div>${t('Customer')}: ${customer?.name ?? t('All Customers')}</div>
+            <div class="summary">
+              <div class="card"><div class="label">${t('Sales')}</div><div class="value">${filteredSales.length}</div></div>
+              <div class="card"><div class="label">${t('Total')}</div><div class="value">${formatter.format(totals.total)}</div></div>
+              <div class="card"><div class="label">${t('Paid')}</div><div class="value">${formatter.format(totals.paid)}</div></div>
+              <div class="card"><div class="label">${t('Credit Used')}</div><div class="value">${formatter.format(totals.credit)}</div></div>
+              <div class="card"><div class="label">${t('Balance')}</div><div class="value">${formatter.format(totals.balance)}</div></div>
+              <div class="card"><div class="label">${t('Items')}</div><div class="value">${totals.items}</div></div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>${t('Date/Time')}</th>
+                  <th>${t('Customer')}</th>
+                  <th style="text-align:right;">${t('Total')}</th>
+                  <th style="text-align:right;">${t('Paid')}</th>
+                  <th style="text-align:right;">${t('Credit Used')}</th>
+                  <th style="text-align:right;">${t('Balance')}</th>
+                  <th style="text-align:right;">${t('Items')}</th>
+                  <th>${t('Method')}</th>
+                  <th>${t('Details')}</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="2" style="text-align:right;">${t('Totals')}</td>
+                  <td style="text-align:right;">${formatter.format(totals.total)}</td>
+                  <td style="text-align:right;">${formatter.format(totals.paid)}</td>
+                  <td style="text-align:right;">${formatter.format(totals.credit)}</td>
+                  <td style="text-align:right;">${formatter.format(totals.balance)}</td>
+                  <td style="text-align:right;">${totals.items}</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+            ${
+              dueCreditRows
+                ? `<h3 style="margin-top:16px;">${t('Due / Credit')}</h3>
+                   <table>
+                     <thead>
+                       <tr>
+                         <th>${t('Date/Time')}</th>
+                         <th>${t('Customer')}</th>
+                         <th style="text-align:right;">${t('Total')}</th>
+                         <th style="text-align:right;">${t('Paid')}</th>
+                         <th style="text-align:right;">${t('Credit Used')}</th>
+                         <th style="text-align:right;">${t('Balance')}</th>
+                         <th>${t('Method')}</th>
+                         <th>${t('Details')}</th>
+                       </tr>
+                     </thead>
+                     <tbody>${dueCreditRows}</tbody>
+                   </table>`
+                : ''
+            }
+          </body>
+        </html>
+      `;
+
+      const pdf = await createReceiptPdf(html);
+      await shareReceipt(pdf.uri);
     } catch (error) {
       console.error('Failed to share all sales as PDF', error);
       Toast.show({ type: 'error', text1: t('Unable to share PDF receipt') });

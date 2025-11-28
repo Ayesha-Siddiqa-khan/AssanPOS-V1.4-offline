@@ -418,6 +418,7 @@ export default function PurchaseEntryModal() {
   const total = subtotal + taxAmount;
   const paidAmount = parseFloat(paidAmountInput.replace(/[^0-9.]/g, '')) || 0;
   const remainingBalance = Math.max(total - paidAmount, 0);
+  const changeDue = Math.max(paidAmount - total, 0);
 
   const handleAddItem = () => {
     if (!selectedProduct) {
@@ -537,6 +538,7 @@ export default function PurchaseEntryModal() {
         total,
         paidAmount,
         remainingBalance,
+        // Store the real paid amount; change is derived (paid - total) when displaying receipts
         paymentMethod,
         invoiceNumber: invoiceNumber.trim() || undefined,
         date,
@@ -826,6 +828,14 @@ export default function PurchaseEntryModal() {
               Rs. {remainingBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
             </Text>
           </View>
+          {changeDue > 0 ? (
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>{t('Change / Credit')}</Text>
+              <Text style={[styles.totalValue, { color: '#16a34a' }]}>
+                Rs. {changeDue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              </Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.actions}>

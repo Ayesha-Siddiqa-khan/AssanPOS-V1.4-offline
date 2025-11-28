@@ -98,16 +98,9 @@ export default function ProductEntryModal() {
   }, [product]);
 
   const validate = () => {
-    const current: typeof errors = {};
-    if (!name.trim()) {
-      current.name = t('Required field');
-    }
-    const priceValue = parseNumber(priceInput);
-    if (!hasVariants && priceValue <= 0) {
-      current.price = t('Enter a price');
-    }
-    setErrors(current);
-    return Object.keys(current).length === 0;
+    // No required fields; allow quick entry without blocking
+    setErrors({});
+    return true;
   };
 
   const handleSave = async () => {
@@ -120,7 +113,7 @@ export default function ProductEntryModal() {
     const stock = stockInput.trim() ? parseNumber(stockInput) : 0;
     const minStock = minStockInput.trim() ? parseNumber(minStockInput) : 0;
     const payload = {
-      name: name.trim(),
+      name: name.trim() || 'Untitled Product',
       category: category.trim() || 'General',
       hasVariants,
       price,
@@ -209,15 +202,13 @@ export default function ProductEntryModal() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.requiredNote}>{t('Fields marked * are required.')}</Text>
-
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{t('Product details')}</Text>
             <Text style={styles.cardSubtitle}>
               {t('Basic info used in sales and reports.')}
             </Text>
             <Input
-              label={`${t('Product Name')} *`}
+              label={t('Product Name')}
               value={name}
               onChangeText={setName}
               placeholder={t('e.g., Malaysian Panel, Door Lock')}
@@ -342,7 +333,7 @@ export default function ProductEntryModal() {
               <View style={styles.twoColumn}>
                 <View style={styles.col}>
                   <Input
-                    label={`${t('Selling Price (Rs.)')} *`}
+                    label={t('Selling Price (Rs.)')}
                     value={priceInput}
                     onChangeText={setPriceInput}
                     keyboardType="decimal-pad"
@@ -351,7 +342,7 @@ export default function ProductEntryModal() {
                 </View>
                 <View style={styles.col}>
                   <Input
-                    label={`${t('Cost Price (Rs.)')} *`}
+                    label={t('Cost Price (Rs.)')}
                     value={costPriceInput}
                     onChangeText={setCostPriceInput}
                     keyboardType="decimal-pad"
@@ -362,7 +353,7 @@ export default function ProductEntryModal() {
               <View style={styles.twoColumn}>
                 <View style={styles.col}>
                   <Input
-                    label={`${t('Initial Stock')} *`}
+                    label={t('Initial Stock')}
                     value={stockInput}
                     onChangeText={setStockInput}
                     keyboardType="decimal-pad"
@@ -370,7 +361,7 @@ export default function ProductEntryModal() {
                 </View>
                 <View style={styles.col}>
                   <Input
-                    label={`${t('Min. Stock')} *`}
+                    label={t('Min. Stock')}
                     value={minStockInput}
                     onChangeText={setMinStockInput}
                     keyboardType="decimal-pad"

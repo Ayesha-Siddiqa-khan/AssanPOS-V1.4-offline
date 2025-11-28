@@ -15,6 +15,7 @@ import {
   type ReceiptPayload,
   type StoreProfile,
 } from '../services/receiptService';
+import { formatTimeForDisplay } from '../lib/date';
 
 const formatCurrency = (value: number | null | undefined) => {
   const amount = Number(value);
@@ -34,14 +35,20 @@ export default function VendorPurchaseHistoryScreen() {
   const safePurchases = Array.isArray(purchases) ? purchases : [];
 
   const vendor = vendorId ? safeVendors.find((item) => item.id === vendorId) : null;
-  const history = useMemo(
-    () => (vendorId ? getVendorPurchases(vendorId) : safePurchases),
-    [vendorId, safePurchases, getVendorPurchases]
-  );
+  const history = useMemo(() => {
+    const source = vendorId ? getVendorPurchases(vendorId) : safePurchases;
+    return Array.isArray(source) ? source : [];
+  }, [vendorId, safePurchases, getVendorPurchases]);
+  const historyList = Array.isArray(history) ? history : [];
 
   const totalSpent = useMemo(() => {
     if (!Array.isArray(history)) return 0;
     return history.reduce((sum, purchase) => sum + (Number(purchase.total) || 0), 0);
+  }, [history]);
+
+  const totalPaid = useMemo(() => {
+    if (!Array.isArray(history)) return 0;
+    return history.reduce((sum, purchase) => sum + (Number(purchase.paidAmount) || 0), 0);
   }, [history]);
 
   const outstanding = useMemo(() => {
@@ -52,7 +59,195 @@ export default function VendorPurchaseHistoryScreen() {
     );
   }, [history]);
 
+  const overpaidCredit = useMemo(() => {
+    if (!Array.isArray(history)) return 0;
+    return history.reduce((sum, purchase) => {
+      const paid = Number(purchase.paidAmount) || 0;
+      const total = Number(purchase.total) || 0;
+      const credit = Math.max(paid - total, 0);
+      return sum + credit;
+    }, 0);
+  }, [history]);
+
+  const summaryShareLines = useMemo(
+    () => [
+      vendor ? `${t('Vendor')}: ${vendor.name}` : t('All Vendors'),
+      `${t('Total Purchases')}: ${historyList.length}`,
+      `${t('Total spent')}: ${formatCurrency(totalSpent)}`,
+      `${t('Total paid')}: ${formatCurrency(totalPaid)}`,
+      `${t('Credit / Overpaid')}: ${formatCurrency(overpaidCredit)}`,
+      `${t('Outstanding')}: ${formatCurrency(outstanding)}`,
+    ],
+    [vendor, historyList.length, totalSpent, totalPaid, overpaidCredit, outstanding, t]
+  );
+
+  const handleShareSummaryWhatsApp = async () => {
+    try {
+      const shared = await shareTextViaWhatsApp(summaryShareLines.join('\n'));
+      if (!shared) {
+        // fallback toast if needed
+      }
+    } catch (error) {
+      console.error('Failed to share vendor summary', error);
+    }
+  };
+
+  const handleShareSummaryPdf = async () => {
+    try {
+      const safeHistory = historyList.slice();
+
+      const historyRows = safeHistory
+        .map((purchase) => {
+          const date = purchase.date ?? '';
+          const time = formatTimeForDisplay(purchase.time);
+          const method = purchase.paymentMethod ?? '';
+          const itemsSummary = Array.isArray(purchase.items)
+            ? purchase.items
+                .slice(0, 4)
+                .map((item: any) => {
+                  const qty = item.quantity ?? 0;
+                  const label = item.variantName ? `${item.name} - ${item.variantName}` : item.name;
+                  return `${label} x${qty}`;
+                })
+                .join(', ') + (purchase.items.length > 4 ? ` +${purchase.items.length - 4}` : '')
+            : '';
+          return `
+            <tr>
+              <td>${date} ${time}</td>
+              <td style="text-align:right;">${formatCurrency(purchase.total)}</td>
+              <td style="text-align:right;">${formatCurrency(purchase.paidAmount)}</td>
+              <td style="text-align:right;">${formatCurrency(purchase.remainingBalance)}</td>
+              <td>${method}</td>
+              <td>${itemsSummary}</td>
+            </tr>
+          `;
+        })
+        .join('');
+
+      // Sort by date/time for ledger display
+      const sortedLedger = safeHistory.slice().sort((a, b) => {
+        const aKey = `${a.date ?? ''} ${a.time ?? ''}`;
+        const bKey = `${b.date ?? ''} ${b.time ?? ''}`;
+        return aKey.localeCompare(bKey);
+      });
+
+      let runningBalance = 0;
+      const ledgerRows = sortedLedger
+        .map((purchase) => {
+          const description =
+            purchase.invoiceNumber ||
+            purchase.items?.[0]?.name ||
+            `${t('Purchase')} #${purchase.id}`;
+          const debit = Number(purchase.total) || 0;
+          const credit = Number(purchase.paidAmount) || 0;
+          runningBalance += debit - credit;
+          const date = purchase.date ?? '';
+          const ref = purchase.id ?? '';
+          const type = purchase.paymentMethod ?? t('Purchase');
+          return `
+            <tr>
+              <td>${date}</td>
+              <td>${type}</td>
+              <td>${ref}</td>
+              <td>${description}</td>
+              <td style="text-align:right;">${formatCurrency(debit)}</td>
+              <td style="text-align:right;">${formatCurrency(credit)}</td>
+              <td style="text-align:right;">${formatCurrency(runningBalance)}</td>
+            </tr>
+          `;
+        })
+        .join('');
+
+      const ledgerTotals = sortedLedger.reduce(
+        (acc, purchase) => {
+          acc.debit += Number(purchase.total) || 0;
+          acc.credit += Number(purchase.paidAmount) || 0;
+          return acc;
+        },
+        { debit: 0, credit: 0 }
+      );
+
+      const html = `
+        <html>
+          <head>
+            <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 16px; color: #111; }
+              h2 { margin: 0 0 12px 0; }
+              .row { display: flex; justify-content: space-between; margin: 6px 0; }
+              .label { color: #555; }
+              .value { font-weight: 700; }
+              table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }
+              th, td { border: 1px solid #e5e7eb; padding: 6px; text-align: left; }
+              th { background: #f8fafc; }
+            </style>
+          </head>
+          <body>
+            <h2>${vendor ? vendor.name : t('Vendor Summary')}</h2>
+            ${summaryShareLines
+              .map((line) => {
+                const [label, ...rest] = line.split(': ');
+                return `<div class="row"><div class="label">${label}</div><div class="value">${rest.join(': ')}</div></div>`;
+              })
+              .join('')}
+            ${
+              historyRows
+                ? `<table>
+                    <thead>
+                      <tr>
+                        <th>${t('Date')}</th>
+                        <th style="text-align:right;">${t('Total')}</th>
+                        <th style="text-align:right;">${t('Paid')}</th>
+                        <th style="text-align:right;">${t('Balance')}</th>
+                        <th>${t('Method')}</th>
+                        <th>${t('Items')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>${historyRows}</tbody>
+                  </table>`
+                : ''
+            }
+            ${
+              ledgerRows
+                ? `<table>
+                    <thead>
+                      <tr>
+                        <th>${t('Date')}</th>
+                        <th>${t('Type')}</th>
+                        <th>${t('Invoice No.')}</th>
+                        <th>${t('Description')}</th>
+                        <th style="text-align:right;">${t('Debit')}</th>
+                        <th style="text-align:right;">${t('Credit')}</th>
+                        <th style="text-align:right;">${t('Balance')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>${ledgerRows}</tbody>
+                    <tfoot>
+                      <tr>
+                        <td colspan="4" style="text-align:right; font-weight:700;">${t('Totals')}</td>
+                        <td style="text-align:right; font-weight:700;">${formatCurrency(ledgerTotals.debit)}</td>
+                        <td style="text-align:right; font-weight:700;">${formatCurrency(ledgerTotals.credit)}</td>
+                        <td style="text-align:right; font-weight:700;">${formatCurrency(ledgerTotals.debit - ledgerTotals.credit)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>`
+                : ''
+            }
+          </body>
+        </html>
+      `;
+      const pdf = await createReceiptPdf(html);
+      await shareReceipt(pdf.uri);
+    } catch (error) {
+      console.error('Failed to share vendor summary PDF', error);
+    }
+  };
+
   const buildReceiptPayload = (purchase: any): { receipt: ReceiptPayload; store: StoreProfile } => {
+    const paidAmount = Number(purchase.paidAmount ?? 0);
+    const totalAmount = Number(purchase.total ?? 0);
+    const changeAmount = Math.max(paidAmount - totalAmount, 0);
+      const createdTime = formatTimeForDisplay(purchase.time);
+
     const storeName =
       shopProfile?.shopName?.trim() && shopProfile.shopName.trim().length > 0
         ? shopProfile.shopName.trim()
@@ -63,9 +258,9 @@ export default function VendorPurchaseHistoryScreen() {
       customerName: purchase.vendor?.name ?? t('Vendor'),
       subtotal: Number(purchase.subtotal ?? 0),
       tax: Number(purchase.tax ?? 0),
-      total: Number(purchase.total ?? 0),
+      total: totalAmount,
       paymentMethod: purchase.paymentMethod ?? t('N/A'),
-      createdAt: `${purchase.date} ${purchase.time}`,
+      createdAt: `${purchase.date} ${createdTime}`,
       lineItems: Array.isArray(purchase.items)
         ? purchase.items.map((item: any) => ({
             name: item.variantName ? `${item.name} - ${item.variantName}` : item.name,
@@ -73,8 +268,9 @@ export default function VendorPurchaseHistoryScreen() {
             price: item.costPrice ?? item.price ?? 0,
           }))
         : [],
-      changeAmount: 0,
-      amountPaid: purchase.paidAmount ?? purchase.total ?? 0,
+      changeAmount,
+      amountPaid: paidAmount,
+      remainingBalance: Number(purchase.remainingBalance ?? 0),
     };
 
     const store: StoreProfile = {
@@ -88,7 +284,7 @@ export default function VendorPurchaseHistoryScreen() {
     try {
       const lines: string[] = [];
       lines.push(`${t('Purchase')} #${purchase.id}`);
-      lines.push(`${purchase.date} - ${purchase.time ?? ''}`);
+      lines.push(`${purchase.date} - ${formatTimeForDisplay(purchase.time)}`);
       lines.push(`${t('Total')}: ${formatCurrency(purchase.total)}`);
       lines.push(`${t('Paid')}: ${formatCurrency(purchase.paidAmount)}`);
       lines.push(`${t('Balance')}: ${formatCurrency(purchase.remainingBalance)}`);
@@ -150,6 +346,25 @@ export default function VendorPurchaseHistoryScreen() {
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.summaryCard}>
+          <View style={styles.summaryHeader}>
+            <Text style={styles.summaryLabel}>{t('Overview')}</Text>
+            <View style={styles.summaryActions}>
+              <TouchableOpacity
+                style={styles.summaryAction}
+                onPress={handleShareSummaryWhatsApp}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="logo-whatsapp" size={18} color="#16a34a" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.summaryAction}
+                onPress={handleShareSummaryPdf}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="document-text-outline" size={18} color="#1f2937" />
+              </TouchableOpacity>
+            </View>
+          </View>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>{t('Total Purchases')}</Text>
             <Text style={styles.summaryValue}>{history.length}</Text>
@@ -159,6 +374,14 @@ export default function VendorPurchaseHistoryScreen() {
             <Text style={styles.summaryValue}>{formatCurrency(totalSpent)}</Text>
           </View>
           <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>{t('Total paid')}</Text>
+            <Text style={styles.summaryValue}>{formatCurrency(totalPaid)}</Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>{t('Credit / Overpaid')}</Text>
+            <Text style={styles.summaryValue}>{formatCurrency(overpaidCredit)}</Text>
+          </View>
+          <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>{t('Outstanding')}</Text>
             <Text style={[styles.summaryValue, outstanding > 0 && styles.summaryWarning]}>
               {formatCurrency(outstanding)}
@@ -166,7 +389,7 @@ export default function VendorPurchaseHistoryScreen() {
           </View>
         </View>
 
-        {history.length === 0 ? (
+        {historyList.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="receipt-outline" size={46} color="#cbd5f5" />
             <Text style={styles.emptyTitle}>{t('No purchases yet')}</Text>
@@ -177,7 +400,7 @@ export default function VendorPurchaseHistoryScreen() {
             </Text>
           </View>
         ) : (
-          history.map((purchase) => (
+          historyList.map((purchase) => (
             <View key={purchase.id} style={styles.purchaseCard}>
               <View style={styles.purchaseHeader}>
                 {/* Vendor Image (if available) */}
@@ -196,7 +419,7 @@ export default function VendorPurchaseHistoryScreen() {
                 )}
                 <View style={{ flex: 1 }}>
                   <Text style={styles.purchaseDate}>
-                    {purchase.date} - {purchase.time ?? ''}
+                    {purchase.date} - {formatTimeForDisplay(purchase.time)}
                   </Text>
                   {purchase.invoiceNumber ? (
                     <Text style={styles.purchaseMeta}>
@@ -338,6 +561,26 @@ const styles = StyleSheet.create({
   },
   summaryWarning: {
     color: '#dc2626',
+  },
+  summaryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  summaryActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  summaryAction: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
   emptyState: {
     marginTop: 20,

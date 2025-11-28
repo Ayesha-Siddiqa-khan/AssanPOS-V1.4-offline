@@ -8,7 +8,7 @@ import { useData } from '../../contexts/DataContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useShop } from '../../contexts/ShopContext';
 import { Button } from '../../components/ui/Button';
-import { formatDateTimeForDisplay } from '../../lib/date';
+import { formatDateTimeForDisplay, formatTimeForDisplay } from '../../lib/date';
 import { shareTextViaWhatsApp } from '../../lib/share';
 import Toast from 'react-native-toast-message';
 import {
@@ -120,7 +120,7 @@ export default function SaleSuccessModal() {
       tax,
       total,
       paymentMethod: paymentMethodLabel,
-      createdAt: `${sale.date} ${sale.time}`,
+      createdAt: `${sale.date} ${formatTimeForDisplay(sale.time)}`,
       lineItems: sale.cart.map((item) => ({
         name: item.variantName ? `${item.name} - ${item.variantName}` : item.name,
         quantity: item.quantity,
@@ -128,8 +128,9 @@ export default function SaleSuccessModal() {
       })),
       changeAmount: changeDue,
       amountPaid,
+      remainingBalance: dueAmount,
     }),
-    [sale, customerName, subtotal, tax, total, paymentMethodLabel, changeDue, amountPaid]
+    [sale, customerName, subtotal, tax, total, paymentMethodLabel, changeDue, amountPaid, dueAmount]
   );
 
   const storeProfile: StoreProfile = useMemo(
@@ -158,6 +159,7 @@ export default function SaleSuccessModal() {
     amountReceivedValue !== undefined
       ? `${t('Amount Received')}: Rs. ${amountReceivedValue.toLocaleString()}`
       : null,
+    hasDueAmount ? `${t('Remaining Balance')}: Rs. ${dueAmount.toLocaleString()}` : null,
     `${t('Return Change')}: Rs. ${changeDue.toLocaleString(undefined, {
       maximumFractionDigits: 2,
     })}`,

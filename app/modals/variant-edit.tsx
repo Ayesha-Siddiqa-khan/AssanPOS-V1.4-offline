@@ -84,31 +84,10 @@ export default function VariantEditModal() {
     );
   }
 
-  const validate = () => {
-    const currentErrors: Record<string, string> = {};
-
-    if (!name.trim()) {
-      currentErrors.name = t('Required field');
-    }
-    const priceValue = Number.parseFloat(price);
-    if (!Number.isFinite(priceValue) || priceValue <= 0) {
-      currentErrors.price = t('Required field');
-    }
-    const costValue = Number.parseFloat(costPrice);
-    if (!Number.isFinite(costValue) || costValue <= 0) {
-      currentErrors.costPrice = t('Required field');
-    }
-    const stockValue = Number.parseFloat(stock);
-    if (!Number.isFinite(stockValue) || stockValue < 0) {
-      currentErrors.stock = t('Required field');
-    }
-    const minValue = Number.parseFloat(minStock);
-    if (!Number.isFinite(minValue) || minValue < 0) {
-      currentErrors.minStock = t('Required field');
-    }
-
-    setErrors(currentErrors);
-    return Object.keys(currentErrors).length === 0;
+const validate = () => {
+    // Allow saving without strict required fields; clear errors
+    setErrors({});
+    return true;
   };
 
   const handleSave = async () => {
@@ -181,7 +160,7 @@ export default function VariantEditModal() {
             </View>
 
         <Input
-          label={`${t('Variant Name')} *`}
+          label={t('Variant Name')}
           value={name}
           onChangeText={(text) => {
             setName(text);
@@ -193,7 +172,7 @@ export default function VariantEditModal() {
 
         <View style={styles.row}>
           <Input
-            label={`${t('Selling Price (Rs.)')} *`}
+            label={t('Selling Price (Rs.)')}
             value={price}
             onChangeText={(text) => {
               setPrice(text);
@@ -205,7 +184,7 @@ export default function VariantEditModal() {
             containerStyle={styles.flexItem}
           />
           <Input
-            label={`${t('Cost Price (Rs.)')} *`}
+            label={t('Cost Price (Rs.)')}
             value={costPrice}
             onChangeText={(text) => {
               setCostPrice(text);
@@ -220,7 +199,7 @@ export default function VariantEditModal() {
 
         <View style={styles.row}>
           <Input
-            label={`${t('Stock')} *`}
+            label={t('Stock')}
             value={stock}
             onChangeText={(text) => {
               setStock(text);
@@ -232,7 +211,7 @@ export default function VariantEditModal() {
             containerStyle={styles.flexItem}
           />
           <Input
-            label={`${t('Min. Stock')} *`}
+            label={t('Min. Stock')}
             value={minStock}
             onChangeText={(text) => {
               setMinStock(text);

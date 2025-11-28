@@ -475,12 +475,12 @@ export default function SettingsScreen() {
         });
         return;
       }
-      console.error('Import failed', error);
       Toast.show({
         type: 'error',
         text1: t('Import failed'),
-        text2: t('Please check your backup file'),
+        text2: msg || t('Please check your backup file'),
       });
+      console.error('Import failed', error);
     } finally {
       setIsImporting(false);
       setIsImportingCsv(false);

@@ -365,10 +365,15 @@ export async function importProductsFromCsv(preselectedUri?: string) {
       fileContent = await readAsStringAsync(targetUri, { encoding: EncodingType.UTF8 });
     }
   } catch (error) {
-    if (isSafPermissionError(error)) {
-      throw new Error('E_SAF_PERMISSION');
+    // Fallback to plain read if SAF read fails
+    try {
+      fileContent = await readAsStringAsync(targetUri, { encoding: EncodingType.UTF8 });
+    } catch (fallbackError) {
+      if (isSafPermissionError(error) || isSafPermissionError(fallbackError)) {
+        throw new Error('E_SAF_PERMISSION');
+      }
+      throw fallbackError ?? error;
     }
-    throw error;
   }
 
   const parsedBackup = parseInventoryBackupContent(fileContent);

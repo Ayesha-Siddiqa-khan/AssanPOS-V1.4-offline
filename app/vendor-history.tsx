@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+﻿import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -30,20 +30,27 @@ export default function VendorPurchaseHistoryScreen() {
   const { t } = useLanguage();
   const { profile: shopProfile } = useShop();
 
-  const vendor = vendorId ? vendors.find((item) => item.id === vendorId) : null;
+  const safeVendors = Array.isArray(vendors) ? vendors : [];
+  const safePurchases = Array.isArray(purchases) ? purchases : [];
+
+  const vendor = vendorId ? safeVendors.find((item) => item.id === vendorId) : null;
   const history = useMemo(
-    () => (vendorId ? getVendorPurchases(vendorId) : purchases),
-    [vendorId, purchases, getVendorPurchases]
+    () => (vendorId ? getVendorPurchases(vendorId) : safePurchases),
+    [vendorId, safePurchases, getVendorPurchases]
   );
 
-  const totalSpent = useMemo(
-    () => history.reduce((sum, purchase) => sum + (Number(purchase.total) || 0), 0),
-    [history]
-  );
-  const outstanding = useMemo(
-    () => history.reduce((sum, purchase) => sum + (Number(purchase.remainingBalance) || 0), 0),
-    [history]
-  );
+  const totalSpent = useMemo(() => {
+    if (!Array.isArray(history)) return 0;
+    return history.reduce((sum, purchase) => sum + (Number(purchase.total) || 0), 0);
+  }, [history]);
+
+  const outstanding = useMemo(() => {
+    if (!Array.isArray(history)) return 0;
+    return history.reduce(
+      (sum, purchase) => sum + (Number(purchase.remainingBalance) || 0),
+      0
+    );
+  }, [history]);
 
   const buildReceiptPayload = (purchase: any): { receipt: ReceiptPayload; store: StoreProfile } => {
     const storeName =
@@ -81,7 +88,7 @@ export default function VendorPurchaseHistoryScreen() {
     try {
       const lines: string[] = [];
       lines.push(`${t('Purchase')} #${purchase.id}`);
-      lines.push(`${purchase.date} · ${purchase.time}`);
+      lines.push(`${purchase.date} - ${purchase.time ?? ''}`);
       lines.push(`${t('Total')}: ${formatCurrency(purchase.total)}`);
       lines.push(`${t('Paid')}: ${formatCurrency(purchase.paidAmount)}`);
       lines.push(`${t('Balance')}: ${formatCurrency(purchase.remainingBalance)}`);
@@ -189,7 +196,7 @@ export default function VendorPurchaseHistoryScreen() {
                 )}
                 <View style={{ flex: 1 }}>
                   <Text style={styles.purchaseDate}>
-                    {purchase.date} • {purchase.time}
+                    {purchase.date} - {purchase.time ?? ''}
                   </Text>
                   {purchase.invoiceNumber ? (
                     <Text style={styles.purchaseMeta}>
@@ -228,12 +235,12 @@ export default function VendorPurchaseHistoryScreen() {
                 </View>
               </View>
 
-              {purchase.items?.length ? (
+              {Array.isArray(purchase.items) && purchase.items.length ? (
                 <View style={styles.itemsList}>
                   {purchase.items.slice(0, 3).map((item, index) => (
                     <Text key={`${purchase.id}-item-${index}`} style={styles.itemText}>
-                      • {item.name}
-                      {item.variantName ? ` · ${item.variantName}` : ''} × {item.quantity}
+                      - {item.name}
+                      {item.variantName ? ` - ${item.variantName}` : ''} - {item.quantity}
                     </Text>
                   ))}
                   {purchase.items.length > 3 ? (
@@ -447,3 +454,7 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
 });
+
+
+
+

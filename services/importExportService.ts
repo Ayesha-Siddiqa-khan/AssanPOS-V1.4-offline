@@ -320,7 +320,7 @@ export async function importProductsFromCsv(preselectedUri?: string) {
   if (!targetUri) {
     const pickerResult = await DocumentPicker.getDocumentAsync({
       copyToCacheDirectory: true,
-      type: 'text/csv',
+      type: '*/*',
     });
 
     const pickerCancelled =
@@ -424,7 +424,8 @@ const parseInventoryBackupContent = (fileContent: string): ParsedInventoryBackup
 
   const parsed = Papa.parse<CsvRow>(fileContent, { header: true, skipEmptyLines: true });
   if (parsed.errors.length) {
-    throw parsed.errors[0];
+    const err = parsed.errors[0];
+    throw new Error(`E_PARSE_CSV: ${err.message ?? 'Unable to parse CSV'}`);
   }
 
   const csvProducts = normalizeProductsForExport(parsed.data);

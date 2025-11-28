@@ -165,6 +165,7 @@ export default function SettingsScreen() {
   const [shopPhone, setShopPhone] = useState('');
   const [isSavingShop, setIsSavingShop] = useState(false);
   const [isImportingCsv, setIsImportingCsv] = useState(false);
+  const [isImportingJson, setIsImportingJson] = useState(false);
   
   // Biometric authentication state
   const [biometricEnabled, setBiometricEnabled] = useState(false);
@@ -465,6 +466,15 @@ export default function SettingsScreen() {
         });
         return;
       }
+      const msg = (error as Error)?.message ?? '';
+      if (msg.startsWith('E_PARSE_CSV')) {
+        Toast.show({
+          type: 'error',
+          text1: t('Import failed'),
+          text2: t('CSV parse error. Check headers/format.'),
+        });
+        return;
+      }
       console.error('Import failed', error);
       Toast.show({
         type: 'error',
@@ -474,6 +484,17 @@ export default function SettingsScreen() {
     } finally {
       setIsImporting(false);
       setIsImportingCsv(false);
+    }
+  };
+
+  const handleImportProductsJson = async () => {
+    setIsImporting(true);
+    setIsImportingJson(true);
+    try {
+      await handleImportProducts(undefined, t('JSON import'));
+    } finally {
+      setIsImporting(false);
+      setIsImportingJson(false);
     }
   };
 
@@ -1435,6 +1456,21 @@ export default function SettingsScreen() {
           <Text style={styles.maintenanceLabel}>{t('Import Inventory CSV')}</Text>
           <Text style={styles.maintenanceMeta}>
             {isImportingCsv ? t('Importing CSV...') : t('Load items from a CSV file')}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.maintenanceCard, { marginTop: 12 }]}
+          onPress={handleImportProductsJson}
+          activeOpacity={0.85}
+          disabled={isImportingJson}
+        >
+          <View style={[styles.maintenanceIcon, { backgroundColor: '#fef3c7' }]}>
+            <Ionicons name="document" size={22} color="#d97706" />
+          </View>
+          <Text style={styles.maintenanceLabel}>{t('Import Inventory JSON')}</Text>
+          <Text style={styles.maintenanceMeta}>
+            {isImportingJson ? t('Importing JSON...') : t('Load items from a JSON file')}
           </Text>
         </TouchableOpacity>
 

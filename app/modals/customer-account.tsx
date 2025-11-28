@@ -583,6 +583,34 @@ export default function CustomerAccountModal() {
         })
         .join('');
 
+      const creditHistoryRows = creditHistory
+        .map((entry) => {
+          const typeLabel =
+            entry.type === 'add' ? t('Added') : entry.type === 'deduct' ? t('Deducted') : t('Used');
+          const formattedTime = formatTimeForDisplay(entry.time);
+          return `
+            <tr>
+              <td>${formatDateForDisplay(entry.date)} ${formattedTime}</td>
+              <td>${typeLabel}</td>
+              <td style="text-align:right;">${formatter.format(entry.amount ?? 0)}</td>
+              <td>${entry.description ?? ''}</td>
+              <td>${entry.linkedSaleId ? `${t('Sale')} #${entry.linkedSaleId}` : ''}</td>
+            </tr>
+          `;
+        })
+        .join('');
+
+      const creditTotals = creditHistory.reduce(
+        (acc, entry) => {
+          const amount = Number(entry.amount ?? 0);
+          if (entry.type === 'add') acc.add += amount;
+          else if (entry.type === 'deduct') acc.deduct += amount;
+          else acc.use += amount;
+          return acc;
+        },
+        { add: 0, deduct: 0, use: 0 }
+      );
+
       const totals = filteredSales.reduce(
         (acc, sale) => {
           acc.total += Number(sale.total ?? 0);
@@ -669,8 +697,32 @@ export default function CustomerAccountModal() {
                          <th>${t('Method')}</th>
                          <th>${t('Details')}</th>
                        </tr>
+                    </thead>
+                    <tbody>${dueCreditRows}</tbody>
+                  </table>`
+                : ''
+            }
+            ${
+              creditHistoryRows
+                ? `<h3 style="margin-top:16px;">${t('Credit History')}</h3>
+                   <table>
+                     <thead>
+                       <tr>
+                         <th>${t('Date/Time')}</th>
+                         <th>${t('Type')}</th>
+                         <th style="text-align:right;">${t('Amount')}</th>
+                         <th>${t('Description')}</th>
+                         <th>${t('Linked')}</th>
+                       </tr>
                      </thead>
-                     <tbody>${dueCreditRows}</tbody>
+                     <tbody>${creditHistoryRows}</tbody>
+                     <tfoot>
+                       <tr>
+                         <td colspan="5" style="text-align:left; font-weight:700;">
+                           ${t('Added')}: ${formatter.format(creditTotals.add)} | ${t('Deducted')}: ${formatter.format(creditTotals.deduct)} | ${t('Used')}: ${formatter.format(creditTotals.use)}
+                         </td>
+                       </tr>
+                     </tfoot>
                    </table>`
                 : ''
             }
@@ -1053,6 +1105,21 @@ export default function CustomerAccountModal() {
                       style={styles.shareAllIcon}
                     />
                     <Text style={styles.shareAllLabel}>{t('Share All')}</Text>
+                  </View>
+                </Button>
+                <Button
+                  variant="outline"
+                  style={styles.shareAllButton}
+                  onPress={handleShareCreditHistoryPdf}
+                >
+                  <View style={styles.shareAllContent}>
+                    <Ionicons
+                      name="document-text-outline"
+                      size={18}
+                      color="#1f2937"
+                      style={styles.shareAllIcon}
+                    />
+                    <Text style={styles.shareAllLabel}>{t('PDF')}</Text>
                   </View>
                 </Button>
                 <TouchableOpacity

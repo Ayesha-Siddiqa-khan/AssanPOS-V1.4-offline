@@ -638,7 +638,7 @@ export default function ProductVariantsModal() {
 
             <Input
               ref={variantNameInputRef}
-              label={`${t('Variant Name')} *`}
+              label={t('Variant Name')}
               value={form.name}
               onChangeText={(text) => handleChange('name', text)}
               placeholder={t('Variant Name')}
@@ -703,7 +703,7 @@ export default function ProductVariantsModal() {
 
             <View style={styles.row}>
               <Input
-                label={`${t('Selling Price (Rs.)')} *`}
+                label={t('Selling Price (Rs.)')}
                 value={form.price}
                 onChangeText={(text) => handleChange('price', text)}
                 keyboardType="numeric"
@@ -712,7 +712,7 @@ export default function ProductVariantsModal() {
                 containerStyle={styles.flexItem}
               />
               <Input
-                label={`${t('Cost Price (Rs.)')} *`}
+                label={t('Cost Price (Rs.)')}
                 value={form.costPrice}
                 onChangeText={(text) => handleChange('costPrice', text)}
                 keyboardType="numeric"
@@ -724,7 +724,7 @@ export default function ProductVariantsModal() {
 
             <View style={styles.row}>
               <Input
-                label={`${t('Stock')} *`}
+                label={t('Stock')}
                 value={form.stock}
                 onChangeText={(text) => handleChange('stock', text)}
                 keyboardType="numeric"
@@ -733,7 +733,7 @@ export default function ProductVariantsModal() {
                 containerStyle={styles.flexItem}
               />
               <Input
-                label={`${t('Min. Stock')} *`}
+                label={t('Min. Stock')}
                 value={form.minStock}
                 onChangeText={(text) => handleChange('minStock', text)}
                 keyboardType="numeric"

@@ -164,6 +164,7 @@ export default function SettingsScreen() {
   const [shopOwner, setShopOwner] = useState('');
   const [shopPhone, setShopPhone] = useState('');
   const [isSavingShop, setIsSavingShop] = useState(false);
+  const [isImportingCsv, setIsImportingCsv] = useState(false);
   
   // Biometric authentication state
   const [biometricEnabled, setBiometricEnabled] = useState(false);
@@ -429,6 +430,7 @@ export default function SettingsScreen() {
 
   const handleImportProducts = async (preselectedUri?: string, labelOverride?: string) => {
     setIsImporting(true);
+    setIsImportingCsv(true);
     try {
       const result = await importProductsFromCsv(preselectedUri);
       if (!result) {
@@ -471,6 +473,7 @@ export default function SettingsScreen() {
       });
     } finally {
       setIsImporting(false);
+      setIsImportingCsv(false);
     }
   };
 
@@ -1403,11 +1406,11 @@ export default function SettingsScreen() {
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.maintenanceCard}
-              onPress={openBackupOptions}
-              activeOpacity={0.85}
-            >
+          <TouchableOpacity
+            style={styles.maintenanceCard}
+            onPress={openBackupOptions}
+            activeOpacity={0.85}
+          >
               <View style={[styles.maintenanceIcon, { backgroundColor: '#e0f2fe' }]}>
                 <Ionicons name="cloud-upload-outline" size={22} color="#0ea5e9" />
               </View>
@@ -1415,16 +1418,31 @@ export default function SettingsScreen() {
               <Text style={styles.maintenanceMeta}>
                 {isExporting
                   ? t('Preparing inventory backup...')
-                  : t('Save all items as backup file')}
-              </Text>
-            </TouchableOpacity>
-          </View>
+              : t('Save all items as backup file')}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-          {supportsDownloadsAccess && (
-            <TouchableOpacity
-              style={styles.downloadsAccessButton}
-              onPress={handleGrantDownloadsAccess}
-              activeOpacity={0.8}
+        <TouchableOpacity
+          style={[styles.maintenanceCard, { marginTop: 12 }]}
+          onPress={() => handleImportProducts(undefined, t('CSV import'))}
+          activeOpacity={0.85}
+          disabled={isImportingCsv}
+        >
+          <View style={[styles.maintenanceIcon, { backgroundColor: '#ecfdf3' }]}>
+            <Ionicons name="document-text-outline" size={22} color="#16a34a" />
+          </View>
+          <Text style={styles.maintenanceLabel}>{t('Import Inventory CSV')}</Text>
+          <Text style={styles.maintenanceMeta}>
+            {isImportingCsv ? t('Importing CSV...') : t('Load items from a CSV file')}
+          </Text>
+        </TouchableOpacity>
+
+        {supportsDownloadsAccess && (
+          <TouchableOpacity
+            style={styles.downloadsAccessButton}
+            onPress={handleGrantDownloadsAccess}
+            activeOpacity={0.8}
             >
               <Ionicons name="folder-open-outline" size={16} color="#1d4ed8" />
               <Text style={styles.downloadsAccessText}>
@@ -1908,7 +1926,7 @@ export default function SettingsScreen() {
               <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
                 <View style={styles.modalContentInner}>
             <View style={styles.formGroup}>
-              <Text style={styles.formLabel}>{t('Name')} *</Text>
+              <Text style={styles.formLabel}>{t('Name')}</Text>
               <TextInput
                 style={styles.formInput}
                 value={formName}
@@ -1943,7 +1961,7 @@ export default function SettingsScreen() {
 
             <View style={styles.formGroup}>
               <Text style={styles.formLabel}>
-                {t('PIN')} {editingUser ? t('(leave blank to keep current)') : '*'}
+                {t('PIN')} {editingUser ? t('(leave blank to keep current)') : ''}
               </Text>
               <TextInput
                 style={styles.formInput}
@@ -1966,7 +1984,7 @@ export default function SettingsScreen() {
             </View>
 
             <View style={styles.formGroup}>
-              <Text style={styles.formLabel}>{t('Role')} *</Text>
+              <Text style={styles.formLabel}>{t('Role')}</Text>
               <View style={styles.roleButtons}>
                 {roles.map((role) => (
                   <TouchableOpacity

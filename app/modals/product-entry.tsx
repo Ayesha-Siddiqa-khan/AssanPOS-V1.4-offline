@@ -251,7 +251,7 @@ export default function ProductEntryModal() {
               onPress={() => setShowCategoryPicker(true)}
               style={styles.selectField}
             >
-              <Text style={styles.selectLabel}>{t('Category')} *</Text>
+              <Text style={styles.selectLabel}>{t('Category')}</Text>
               <View style={styles.selectBox}>
                 <Text style={[styles.selectValue, !category && styles.selectPlaceholder]}>
                   {category || t('Select Category')}

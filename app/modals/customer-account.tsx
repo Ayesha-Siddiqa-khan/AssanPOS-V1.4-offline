@@ -24,7 +24,7 @@ import { Badge } from '../../components/ui/Badge';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useData } from '../../contexts/DataContext';
 import { useShop } from '../../contexts/ShopContext';
-import { formatDateTimeForDisplay, formatTimeForDisplay } from '../../lib/date';
+import { formatDateForDisplay, formatDateTimeForDisplay, formatTimeForDisplay } from '../../lib/date';
 import { shareTextViaWhatsApp } from '../../lib/share';
 import {
   createReceiptPdf,

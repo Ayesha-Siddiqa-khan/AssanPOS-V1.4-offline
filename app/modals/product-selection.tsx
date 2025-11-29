@@ -120,6 +120,8 @@ export default function ProductSelectionModal() {
     selectedCustomerId ? 'saved' : 'walk-in'
   );
   const [isPriceLookup, setIsPriceLookup] = useState(false);
+  const [quantityInputs, setQuantityInputs] = useState<Record<string, string>>({});
+  const [activeQuantityKey, setActiveQuantityKey] = useState<string | null>(null);
   const isCustomProductValid = useMemo(() => {
     const parsedPrice = Number(customPrice);
     return (
@@ -164,6 +166,18 @@ export default function ProductSelectionModal() {
     setQuickPaymentEnabled(true);
     setShowRandomPurchase(true);
   }, [setQuickPaymentEnabled]);
+
+  useEffect(() => {
+    setQuantityInputs((prev) => {
+      const next: Record<string, string> = {};
+      cart.forEach((item) => {
+        const key = getQuantityKey(item.productId, item.variantId ?? null);
+        const syncedValue = String(item.quantity);
+        next[key] = activeQuantityKey === key ? prev[key] ?? syncedValue : syncedValue;
+      });
+      return next;
+    });
+  }, [cart, activeQuantityKey]);
 
   useEffect(() => {
     // Removed initial auto-focus to prevent keyboard popping up by default
@@ -505,6 +519,8 @@ export default function ProductSelectionModal() {
     [t]
   );
   const isInstantAddMode = instantAddMode === 'direct';
+  const getQuantityKey = (productId: number, variantId: number | null) =>
+    `${productId}-${variantId ?? 'base'}`;
 
   useEffect(() => {
     navigation.setOptions({
@@ -796,6 +812,49 @@ export default function ProductSelectionModal() {
     setRecentProducts([]);
     db.setSetting('pos.recentProducts', []).catch(console.warn);
     Toast.show({ type: 'info', text1: t('Cart cleared') });
+  };
+
+  type CartItem = (typeof cart)[number];
+
+  const handleStepQuantity = (item: CartItem, delta: number) => {
+    const nextQuantity = item.quantity + delta;
+    const key = getQuantityKey(item.productId, item.variantId ?? null);
+    updateQuantity(item.productId, item.variantId ?? null, nextQuantity);
+    setQuantityInputs((prev) => {
+      const updated = { ...prev };
+      if (nextQuantity > 0) {
+        updated[key] = String(nextQuantity);
+      } else {
+        delete updated[key];
+      }
+      return updated;
+    });
+  };
+
+  const handleQuantityInputChange = (key: string, value: string) => {
+    const sanitized = value.replace(/[^0-9]/g, '');
+    setQuantityInputs((prev) => ({ ...prev, [key]: sanitized }));
+  };
+
+  const handleQuantityInputCommit = (item: CartItem, value: string) => {
+    const sanitized = value.replace(/[^0-9]/g, '');
+    const key = getQuantityKey(item.productId, item.variantId ?? null);
+
+    if (!sanitized) {
+      setQuantityInputs((prev) => ({ ...prev, [key]: String(item.quantity) }));
+      return;
+    }
+
+    const parsed = Number(sanitized);
+
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      Toast.show({ type: 'error', text1: t('Enter a valid quantity') });
+      setQuantityInputs((prev) => ({ ...prev, [key]: String(item.quantity) }));
+      return;
+    }
+
+    updateQuantity(item.productId, item.variantId ?? null, parsed);
+    setQuantityInputs((prev) => ({ ...prev, [key]: String(parsed) }));
   };
 
   const handleQuickPayment = async () => {
@@ -1286,7 +1345,7 @@ export default function ProductSelectionModal() {
                     <View>
                       <Text style={styles.productName}>{product.name}</Text>
                       <Text style={styles.productCategory}>{product.category}</Text>
-                    </View>
+                      </View>
                     {!product.hasVariants && (
                       <View style={styles.productPrice}>
                         <Text style={styles.productPriceValue}>
@@ -1295,7 +1354,7 @@ export default function ProductSelectionModal() {
                         <Button size="sm" onPress={() => handleAddProduct(product)}>
                           {t('Add Item')}
                         </Button>
-                      </View>
+                        </View>
                     )}
                   </View>
 
@@ -1374,74 +1433,82 @@ export default function ProductSelectionModal() {
                   </Text>
                 </View>
               ) : (
-                cart.map((item) => (
-                  <View
-                    key={`${item.productId}-${item.variantId ?? 'base'}`}
-                    style={styles.cartRow}
-                  >
-                    <View style={styles.cartInfo}>
-                      <View style={styles.cartNameRow}>
-                        <TouchableOpacity
-                          style={styles.cartRemoveIcon}
-                          onPress={() => removeItem(item.productId, item.variantId ?? null)}
-                        >
-                          <Ionicons name="trash-outline" size={16} color="#ef4444" />
-                        </TouchableOpacity>
-                        <Text style={styles.cartName}>
-                          {item.name}
-                          {item.variantName ? ` • ${item.variantName}` : ''}
-                        </Text>
-                      </View>
-                      {item.variantAttributes && item.variantAttributes.length > 0 && (
-                        <View style={styles.cartMetaRow}>
-                          {item.variantAttributes.map((attr) => (
-                            <Text key={`${item.productId}-${attr.label}`} style={styles.cartMeta}>
-                              {attr.label}: {attr.value}
-                            </Text>
-                          ))}
+                cart.map((item) => {
+                  const quantityKey = getQuantityKey(item.productId, item.variantId ?? null);
+                  const quantityValue = quantityInputs[quantityKey] ?? String(item.quantity);
+
+                  return (
+                    <View
+                      key={`${item.productId}-${item.variantId ?? 'base'}`}
+                      style={styles.cartRow}
+                    >
+                      <View style={styles.cartInfo}>
+                        <View style={styles.cartNameRow}>
+                          <TouchableOpacity
+                            style={styles.cartRemoveIcon}
+                            onPress={() => removeItem(item.productId, item.variantId ?? null)}
+                          >
+                            <Ionicons name="trash-outline" size={16} color="#ef4444" />
+                          </TouchableOpacity>
+                          <Text style={styles.cartName}>
+                            {item.name}
+                            {item.variantName ? ` • ${item.variantName}` : ''}
+                          </Text>
                         </View>
-                      )}
-                      <Text style={styles.cartQtyLine}>
-                        <Text style={styles.cartQtyPart}>
-                          {item.quantity} x Rs. {item.price.toLocaleString()}
+                        {item.variantAttributes && item.variantAttributes.length > 0 && (
+                          <View style={styles.cartMetaRow}>
+                            {item.variantAttributes.map((attr) => (
+                              <Text key={`${item.productId}-${attr.label}`} style={styles.cartMeta}>
+                                {attr.label}: {attr.value}
+                              </Text>
+                            ))}
+                          </View>
+                        )}
+                        <Text style={styles.cartQtyLine}>
+                          <Text style={styles.cartQtyPart}>
+                            {item.quantity} x Rs. {item.price.toLocaleString()}
+                          </Text>
+                          <Text style={styles.cartQtyArrow}>  →  </Text>
+                          <Text style={styles.cartQtyTotal}>
+                            Rs. {(item.price * item.quantity).toLocaleString()}
+                          </Text>
                         </Text>
-                        <Text style={styles.cartQtyArrow}>  →  </Text>
-                        <Text style={styles.cartQtyTotal}>
-                          Rs. {(item.price * item.quantity).toLocaleString()}
-                        </Text>
-                      </Text>
-                    </View>
-                    <View style={styles.cartControls}>
-                      <View style={styles.quantityControls}>
-                        <TouchableOpacity
-                          style={styles.quantityButton}
-                          onPress={() =>
-                            updateQuantity(
-                              item.productId,
-                              item.variantId ?? null,
-                              item.quantity - 1
-                            )
-                          }
-                        >
-                          <Ionicons name="remove" size={18} color="#111827" />
-                        </TouchableOpacity>
-                        <Text style={styles.quantityValue}>{item.quantity}</Text>
-                        <TouchableOpacity
-                          style={styles.quantityButton}
-                          onPress={() =>
-                            updateQuantity(
-                              item.productId,
-                              item.variantId ?? null,
-                              item.quantity + 1
-                            )
-                          }
-                        >
-                          <Ionicons name="add" size={18} color="#111827" />
-                        </TouchableOpacity>
+                      </View>
+                      <View style={styles.cartControls}>
+                        <View style={styles.quantityControls}>
+                          <TouchableOpacity
+                            style={styles.quantityButton}
+                            onPress={() => handleStepQuantity(item, -1)}
+                          >
+                            <Ionicons name="remove" size={18} color="#111827" />
+                          </TouchableOpacity>
+                          <TextInput
+                            style={[
+                              styles.quantityInput,
+                              activeQuantityKey === quantityKey && styles.quantityInputFocused,
+                            ]}
+                            value={quantityValue}
+                            onChangeText={(text) => handleQuantityInputChange(quantityKey, text)}
+                            onFocus={() => setActiveQuantityKey(quantityKey)}
+                            onBlur={() => {
+                              setActiveQuantityKey(null);
+                              handleQuantityInputCommit(item, quantityValue);
+                            }}
+                            onSubmitEditing={() => handleQuantityInputCommit(item, quantityValue)}
+                            keyboardType="number-pad"
+                            returnKeyType="done"
+                          />
+                          <TouchableOpacity
+                            style={styles.quantityButton}
+                            onPress={() => handleStepQuantity(item, 1)}
+                          >
+                            <Ionicons name="add" size={18} color="#111827" />
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     </View>
-              </View>
-                ))
+                  );
+                })
               )}
 
               {isInstantAddMode && (
@@ -1900,7 +1967,7 @@ export default function ProductSelectionModal() {
                 {/* Camera Scan Button */}
                 <TouchableOpacity
                   style={styles.scanMethodButton}
-                  onPress={handleCameraScanRequest}
+                  onPress={() => handleCameraScanRequest()}
                 >
                   <Ionicons name="camera" size={32} color="#2563eb" />
                   <Text style={styles.scanMethodTitle}>{t('Scan with Camera')}</Text>
@@ -2679,6 +2746,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#f9fafb',
   },
+  quantityInput: {
+    minWidth: 64,
+    height: 36,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 10,
+    textAlign: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#111827',
+    backgroundColor: '#ffffff',
+  },
+  quantityInputFocused: {
+    borderColor: '#2563eb',
+    shadowColor: '#2563eb',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 2,
+    elevation: 1,
+  },
   quantityValue: {
     fontSize: 15,
     fontWeight: '600',
@@ -3001,9 +3090,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     marginTop: 8,
-  },
-  inlineInput: {
-    flex: 1,
   },
   customFieldRow: {
     flexDirection: 'row',

@@ -1,1 +1,5 @@
-c:\Users\Rising\AppData\Local\Packages\5319275A.WhatsAppDesktop_cv1g1gvanyjgm\TempState\09853C7FB1D3F8EE67A61B6BF4A7F8E6\WhatsApp Image 2025-11-29 at 02.29.45_f42a94e8.jpg
+name,category,hasVariants,variants,price,stock,minStock,barcode,unit,costPrice
+"Sunrise Basmati Rice",Grocery,true,"[{""id"":1,""name"":""1kg"",""price"":430,""stock"":20,""minStock"":5},{""id"":2,""name"":""5kg"",""price"":2100,""stock"":8,""minStock"":2}]",,,,"",""
+"Eggs Tray",Dairy,false,,"360",12,4,899999111222,tray,320
+"Shampoo Luxe",Personal Care,true,"[{""id"":1,""name"":""Small"",""size"":""200ml"",""price"":520,""stock"":15,""minStock"":4},{""id"":2,""name"":""Large"",""size"":""400ml"",""price"":910,""stock"":10,""minStock"":3}]",,,,"",""
+"Salt Pack",Grocery,false,,"45",50,10,1234567890123,kg,35

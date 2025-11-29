@@ -25,6 +25,54 @@ const DOWNLOAD_DIR_NAME = 'Download';
 const INVENTORY_SNAPSHOT_VERSION = 2;
 const INVENTORY_FILE_EXTENSION = '.json';
 const SNAPSHOT_MIME_TYPE = 'application/json';
+const SAMPLE_INVENTORY_CSV = `name,category,hasVariants,variants,price,stock,minStock,barcode,unit,costPrice
+"Sunrise Basmati Rice",Grocery,true,"[{""id"":1,""name"":""1kg"",""price"":430,""stock"":20,""minStock"":5},{""id"":2,""name"":""5kg"",""price"":2100,""stock"":8,""minStock"":2}]",,,,"",""
+"Eggs Tray",Dairy,false,,"360",12,4,899999111222,tray,320
+"Shampoo Luxe",Personal Care,true,"[{""id"":1,""name"":""Small"",""size"":""200ml"",""price"":520,""stock"":15,""minStock"":4},{""id"":2,""name"":""Large"",""size"":""400ml"",""price"":910,""stock"":10,""minStock"":3}]",,,,"",""
+"Salt Pack",Grocery,false,,"45",50,10,1234567890123,kg,35
+`;
+const SAMPLE_INVENTORY_JSON: ExportableProduct[] = [
+  {
+    name: 'Sunrise Basmati Rice',
+    category: 'Grocery',
+    hasVariants: true,
+    variants: [
+      { id: 1, name: '1kg', price: 430, stock: 20, minStock: 5, barcode: 'SR-1KG' },
+      { id: 2, name: '5kg', price: 2100, stock: 8, minStock: 2, barcode: 'SR-5KG' },
+    ],
+  },
+  {
+    name: 'Eggs Tray',
+    category: 'Dairy',
+    hasVariants: false,
+    price: 360,
+    stock: 12,
+    minStock: 4,
+    barcode: '899999111222',
+    unit: 'tray',
+    costPrice: 320,
+  },
+  {
+    name: 'Shampoo Luxe',
+    category: 'Personal Care',
+    hasVariants: true,
+    variants: [
+      { id: 1, name: 'Small', size: '200ml', price: 520, stock: 15, minStock: 4, barcode: 'SH-LUXE-S' },
+      { id: 2, name: 'Large', size: '400ml', price: 910, stock: 10, minStock: 3, barcode: 'SH-LUXE-L' },
+    ],
+  },
+  {
+    name: 'Salt Pack',
+    category: 'Grocery',
+    hasVariants: false,
+    price: 45,
+    stock: 50,
+    minStock: 10,
+    barcode: '1234567890123',
+    unit: 'kg',
+    costPrice: 35,
+  },
+];
 const canScheduleBackgroundTasks = Platform.OS !== 'web' && Constants.appOwnership !== 'expo';
 let exportTaskDefined = false;
 
@@ -312,6 +360,27 @@ const isSafPermissionError = (error: unknown) => {
     message.includes('document tree has become invalid')
   );
 };
+
+export async function saveSampleInventoryFile(
+  format: 'csv' | 'json',
+  options?: { share?: boolean }
+): Promise<{ uri: string; fileName: string }> {
+  const share = options?.share ?? true;
+  const fileName = format === 'csv' ? 'inventory-sample.csv' : 'inventory-sample.json';
+  const content =
+    format === 'csv' ? SAMPLE_INVENTORY_CSV : JSON.stringify(SAMPLE_INVENTORY_JSON, null, 2);
+  const baseDir = (documentDirectory ?? cacheDirectory ?? '').replace(/\/?$/, '/');
+  const fileUri = `${baseDir}${fileName}`;
+
+  await writeAsStringAsync(fileUri, content, { encoding: EncodingType.UTF8 });
+
+  if (share && (await Sharing.isAvailableAsync())) {
+    const mimeType = format === 'csv' ? 'text/csv' : SNAPSHOT_MIME_TYPE;
+    await Sharing.shareAsync(fileUri, { mimeType });
+  }
+
+  return { uri: fileUri, fileName };
+}
 
 export async function importProductsFromCsv(preselectedUri?: string) {
   let targetUri = preselectedUri ?? null;

@@ -33,6 +33,7 @@ import { synchronizeNow } from '../../services/syncService';
 import { spacing, radii, textStyles } from '../../theme/tokens';
 import {
   importProductsFromCsv,
+  saveSampleInventoryFile,
   exportDataSnapshot,
   exportInventorySnapshotToDevice,
   getLatestInventoryBackupFromDownloads,
@@ -166,6 +167,7 @@ export default function SettingsScreen() {
   const [isSavingShop, setIsSavingShop] = useState(false);
   const [isImportingCsv, setIsImportingCsv] = useState(false);
   const [isImportingJson, setIsImportingJson] = useState(false);
+  const [isDownloadingSample, setIsDownloadingSample] = useState(false);
   
   // Biometric authentication state
   const [biometricEnabled, setBiometricEnabled] = useState(false);
@@ -498,6 +500,26 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleDownloadSample = async (format: 'csv' | 'json') => {
+    setIsDownloadingSample(true);
+    try {
+      const result = await saveSampleInventoryFile(format);
+      Toast.show({
+        type: 'success',
+        text1: t('Sample ready'),
+        text2: result.fileName,
+      });
+    } catch (error) {
+      console.error('Sample download failed', error);
+      Toast.show({
+        type: 'error',
+        text1: t('Could not create sample file'),
+      });
+    } finally {
+      setIsDownloadingSample(false);
+    }
+  };
+
   const handleExportData = async () => {
     const trimmed = backupFileName.trim();
     if (!trimmed) {
@@ -737,35 +759,48 @@ export default function SettingsScreen() {
   };
 
   const handleRestoreInventoryCardPress = async () => {
-    const latest = await getLatestInventoryBackupFromDownloads();
-    if (!latest) {
+    const latestMeta = lastInventoryBackup;
+    const latestDownload = await getLatestInventoryBackupFromDownloads();
+
+    // No known backups -> ask user to pick a file
+    if (!latestMeta && !latestDownload) {
       Toast.show({
         type: 'info',
-        text1: t('No saved backups found in Downloads'),
-        text2: t('Choose a backup file manually.'),
+        text1: t('No saved backups found'),
+        text2: t('Pick your backup file to restore.'),
       });
       await handleImportProducts();
       return;
     }
 
+    // Android Alert supports max 3 buttons. Prefer the most recent known backup plus a manual picker.
+    const preferred = latestMeta ?? latestDownload;
+    const preferredLabel = latestMeta
+      ? t('Restore latest backup')
+      : t('Restore from Downloads');
+
+    const buttons: Array<{ text: string; onPress?: () => void; style?: 'cancel' | 'destructive' | 'default' }> = [
+      { text: t('Cancel'), style: 'cancel' },
+      {
+        text: preferredLabel,
+        onPress: () => {
+          if (preferred) {
+            handleImportProducts(preferred.uri, preferred.fileName ?? preferred.name);
+          }
+        },
+      },
+      {
+        text: t('Choose File'),
+        onPress: () => {
+          handleImportProducts();
+        },
+      },
+    ];
+
     Alert.alert(
       t('Restore Inventory Backup'),
-      t('Restore {file} from Downloads?').replace('{file}', latest.name),
-      [
-        { text: t('Cancel'), style: 'cancel' },
-        {
-          text: t('Choose File'),
-          onPress: () => {
-            handleImportProducts();
-          },
-        },
-        {
-          text: t('Restore from Downloads'),
-          onPress: () => {
-            handleImportProducts(latest.uri, latest.name);
-          },
-        },
-      ]
+      t('Choose how to restore your inventory items.'),
+      buttons
     );
   };
 
@@ -1471,6 +1506,36 @@ export default function SettingsScreen() {
           <Text style={styles.maintenanceLabel}>{t('Import Inventory JSON')}</Text>
           <Text style={styles.maintenanceMeta}>
             {isImportingJson ? t('Importing JSON...') : t('Load items from a JSON file')}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.maintenanceCard, { marginTop: 12 }]}
+          onPress={() => handleDownloadSample('csv')}
+          activeOpacity={0.85}
+          disabled={isDownloadingSample}
+        >
+          <View style={[styles.maintenanceIcon, { backgroundColor: '#eef2ff' }]}>
+            <Ionicons name="download-outline" size={22} color="#4f46e5" />
+          </View>
+          <Text style={styles.maintenanceLabel}>{t('Download Sample CSV')}</Text>
+          <Text style={styles.maintenanceMeta}>
+            {isDownloadingSample ? t('Preparing sample...') : t('Get a template to edit and import')}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.maintenanceCard, { marginTop: 12 }]}
+          onPress={() => handleDownloadSample('json')}
+          activeOpacity={0.85}
+          disabled={isDownloadingSample}
+        >
+          <View style={[styles.maintenanceIcon, { backgroundColor: '#f0fdf4' }]}>
+            <Ionicons name="code-slash-outline" size={22} color="#16a34a" />
+          </View>
+          <Text style={styles.maintenanceLabel}>{t('Download Sample JSON')}</Text>
+          <Text style={styles.maintenanceMeta}>
+            {isDownloadingSample ? t('Preparing sample...') : t('Get a JSON template for import')}
           </Text>
         </TouchableOpacity>
 

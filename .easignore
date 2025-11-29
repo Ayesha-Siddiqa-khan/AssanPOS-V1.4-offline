@@ -1,0 +1,9 @@
+.expo/
+.expo-shared/
+.git/
+.gitignore
+node_modules/
+dist/
+build/
+.vscode/
+assanpos_flutter/

@@ -150,16 +150,30 @@ const toNullableString = (value: unknown): string | null => {
   return str.length ? str : null;
 };
 
+const normalizeNumericString = (value: unknown): string => {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  const str = String(value).trim();
+  // Remove thousands separators and spaces
+  return str.replace(/,/g, '').replace(/\s+/g, '');
+};
+
 const toNullableNumber = (value: unknown): number | null => {
-  if (value === null || value === undefined || value === '') {
+  const cleaned = normalizeNumericString(value);
+  if (!cleaned) {
     return null;
   }
-  const num = Number(value);
+  const num = Number(cleaned);
   return Number.isFinite(num) ? num : null;
 };
 
 const toNumberWithFallback = (value: unknown, fallback = 0): number => {
-  const num = Number(value);
+  const cleaned = normalizeNumericString(value);
+  if (!cleaned) {
+    return fallback;
+  }
+  const num = Number(cleaned);
   return Number.isFinite(num) ? num : fallback;
 };
 
@@ -234,7 +248,7 @@ const sanitizeProductRecord = (product: any): ExportableProduct | null => {
 
   const rawHasVariants =
     typeof product.hasVariants === 'string'
-      ? product.hasVariants.toLowerCase() === 'true'
+      ? ['true', 'yes', 'y', '1', 't', 'tre'].includes(product.hasVariants.toLowerCase())
       : Boolean(product.hasVariants);
 
   const hasVariants = rawHasVariants || normalizedVariants.length > 0;
@@ -498,13 +512,39 @@ const parseInventoryBackupContent = (fileContent: string): ParsedInventoryBackup
     return { products: jsonProducts, format: 'json' };
   }
 
-  const parsed = Papa.parse<CsvRow>(fileContent, { header: true, skipEmptyLines: true });
+  // Heuristic delimiter detection (CSV vs TSV)
+  const commaCount = (trimmed.match(/,/g) || []).length;
+  const tabCount = (trimmed.match(/\t/g) || []).length;
+  const delimiter = tabCount > commaCount ? '\t' : ',';
+
+  const parsed = Papa.parse<CsvRow>(fileContent, {
+    header: true,
+    skipEmptyLines: true,
+    delimiter,
+    transformHeader: (h) => h.trim(),
+  });
+
   if (parsed.errors.length) {
-    const err = parsed.errors[0];
-    throw new Error(`E_PARSE_CSV: ${err.message ?? 'Unable to parse CSV'}`);
+    console.warn('[CSV Import] Non-fatal parse errors detected:', parsed.errors.slice(0, 3));
   }
 
-  const csvProducts = normalizeProductsForExport(parsed.data);
+  let rows = parsed.data;
+
+  // Fallback: if we failed to get rows, try a very loose parse by normalizing tabs to commas
+  if (!rows || rows.length === 0) {
+    const relaxedContent = trimmed.replace(/\t/g, ',');
+    const relaxed = Papa.parse<CsvRow>(relaxedContent, {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: (h) => h.trim(),
+    });
+    if (relaxed.errors.length) {
+      console.warn('[CSV Import] Relaxed parse still has errors:', relaxed.errors.slice(0, 3));
+    }
+    rows = relaxed.data ?? [];
+  }
+
+  const csvProducts = normalizeProductsForExport(rows);
   return { products: csvProducts, format: 'csv' };
 };
 

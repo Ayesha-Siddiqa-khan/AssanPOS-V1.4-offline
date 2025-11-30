@@ -490,9 +490,20 @@ export default function ProductSelectionModal() {
       </View>
     );
   };
+  const getInputQuantityOrCart = (item: CartItem) => {
+    const key = getQuantityKey(item.productId, item.variantId ?? null);
+    const raw = quantityInputs[key];
+    const parsed = raw ? parseQuantityInput(raw).parsed : null;
+    return parsed ?? item.quantity;
+  };
+
   const subtotal = useMemo(
-    () => cart.reduce((sum, item) => sum + (item.price || 0) * item.quantity, 0),
-    [cart]
+    () =>
+      cart.reduce((sum, item) => {
+        const qty = getInputQuantityOrCart(item);
+        return sum + (item.price || 0) * qty;
+      }, 0),
+    [cart, quantityInputs]
   );
 
   const discountAmount = Math.min(discount, subtotal);
@@ -501,8 +512,8 @@ export default function ProductSelectionModal() {
   const taxAmount = Number(((taxableAmount * taxRate) / 100).toFixed(2));
   const totalDue = taxableAmount + taxAmount;
   const itemsCount = useMemo(
-    () => cart.reduce((sum, item) => sum + item.quantity, 0),
-    [cart]
+    () => cart.reduce((sum, item) => sum + getInputQuantityOrCart(item), 0),
+    [cart, quantityInputs]
   );
   const hasExtraOnly = cart.length === 0 && randomPurchaseAmount > 0;
   const saleItemsCount = itemsCount > 0 ? itemsCount : hasExtraOnly ? 1 : 0;
@@ -887,11 +898,23 @@ export default function ProductSelectionModal() {
     setQuantityInputs((prev) => ({ ...prev, [key]: String(parsed) }));
   };
 
+  const applyQuantityInputsToCart = () => {
+    cart.forEach((item) => {
+      const key = getQuantityKey(item.productId, item.variantId ?? null);
+      const raw = quantityInputs[key];
+      const parsed = raw ? parseQuantityInput(raw).parsed : null;
+      if (parsed && parsed !== item.quantity) {
+        updateQuantity(item.productId, item.variantId ?? null, parsed);
+      }
+    });
+  };
+
   const handleQuickPayment = async () => {
     if (!canCheckout) {
       Toast.show({ type: 'error', text1: t('Add an item or extra amount to continue') });
       return;
     }
+    applyQuantityInputsToCart();
     setIsQuickPaying(true);
     try {
       const now = new Date();
@@ -899,17 +922,16 @@ export default function ProductSelectionModal() {
       const time = now.toTimeString().slice(0, 8);
       const creditAvailable = Math.max(selectedCustomer?.credit ?? 0, 0);
       const creditApplied =
-        paymentStatus === 'net' ? 0 : Math.min(totalDue, creditAvailable);
-      const remainingAfterCredit = totalDue - creditApplied;
-      const remainingForRecord = paymentStatus === 'net' ? 0 : remainingAfterCredit;
-      const paidForRecord = paymentStatus === 'net' ? totalDue : remainingAfterCredit;
+        paymentStatus === 'due' ? Math.min(totalDue, creditAvailable) : 0;
+      const remainingBalance = paymentStatus === 'due' ? Math.max(totalDue - creditApplied, 0) : 0;
+      const paidForRecord = paymentStatus === 'net' ? totalDue : creditApplied;
       const paymentMethod =
-        paymentStatus === 'net'
-          ? 'Cash'
-          : creditApplied > 0
-          ? 'Customer Credit'
+        paymentStatus === 'due'
+          ? creditApplied > 0
+            ? 'Customer Credit'
+            : 'Cash'
           : 'Cash';
-      const status = paymentStatus === 'net' ? 'Paid' : remainingAfterCredit > 0 ? 'Due' : 'Paid';
+      const status = paymentStatus === 'due' && remainingBalance > 0 ? 'Due' : 'Paid';
       const walkInName = walkInCustomerName.trim();
       const customerPayload = selectedCustomer
         ? {
@@ -959,10 +981,10 @@ export default function ProductSelectionModal() {
           tax: taxAmount,
           total: totalDue,
           creditUsed: creditApplied,
-          amountAfterCredit: remainingForRecord,
+          amountAfterCredit: remainingBalance,
           paidAmount: paidForRecord,
           changeAmount: 0,
-          remainingBalance: remainingForRecord,
+          remainingBalance: remainingBalance,
           paymentMethod,
           dueDate: undefined,
           date,
@@ -1012,6 +1034,7 @@ export default function ProductSelectionModal() {
     if (isCompletingSale) {
       return;
     }
+    applyQuantityInputsToCart();
     setIsCompletingSale(true);
     try {
       const now = new Date();
@@ -1019,15 +1042,15 @@ export default function ProductSelectionModal() {
       const time = now.toTimeString().slice(0, 8);
       const creditAvailable = Math.max(selectedCustomer?.credit ?? 0, 0);
       const creditApplied =
-        paymentStatus === 'net' ? 0 : Math.min(totalDue, creditAvailable);
-      const remainingAfterCredit = totalDue - creditApplied;
+        paymentStatus === 'due' ? Math.min(totalDue, creditAvailable) : 0;
+      const remainingBalance = paymentStatus === 'due' ? Math.max(totalDue - creditApplied, 0) : 0;
       const paymentMethod =
-        paymentStatus === 'net'
-          ? 'Cash'
-          : creditApplied > 0
-          ? 'Customer Credit'
+        paymentStatus === 'due'
+          ? creditApplied > 0
+            ? 'Customer Credit'
+            : 'Cash'
           : 'Cash';
-      const status = paymentStatus === 'net' ? 'Paid' : remainingAfterCredit > 0 ? 'Due' : 'Paid';
+      const status = paymentStatus === 'due' && remainingBalance > 0 ? 'Due' : 'Paid';
       const walkInName = walkInCustomerName.trim();
       const customerPayload = selectedCustomer
         ? {
@@ -1060,8 +1083,8 @@ export default function ProductSelectionModal() {
             ]
           : [];
 
-      const remainingForRecord = paymentStatus === 'net' ? 0 : remainingAfterCredit;
-      const paidForRecord = paymentStatus === 'net' ? totalDue : remainingAfterCredit;
+      const remainingForRecord = remainingBalance;
+      const paidForRecord = paymentStatus === 'net' ? totalDue : creditApplied;
 
       await addSale({
         customer: customerPayload,
@@ -1496,11 +1519,11 @@ export default function ProductSelectionModal() {
                         )}
                         <Text style={styles.cartQtyLine}>
                           <Text style={styles.cartQtyPart}>
-                            {item.quantity} x Rs. {item.price.toLocaleString()}
+                            {getInputQuantityOrCart(item)} x Rs. {item.price.toLocaleString()}
                           </Text>
                           <Text style={styles.cartQtyArrow}>  →  </Text>
                           <Text style={styles.cartQtyTotal}>
-                            Rs. {(item.price * item.quantity).toLocaleString()}
+                            Rs. {(item.price * getInputQuantityOrCart(item)).toLocaleString()}
                           </Text>
                         </Text>
                       </View>

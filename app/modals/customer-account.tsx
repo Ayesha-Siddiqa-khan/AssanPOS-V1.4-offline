@@ -508,6 +508,116 @@ export default function CustomerAccountModal() {
     }
   };
 
+  const handleShareCreditHistoryText = async () => {
+    try {
+      if (!creditHistory.length) {
+        Toast.show({ type: 'info', text1: t('No credit history to share') });
+        return;
+      }
+
+      const lines: string[] = [];
+      lines.push(`${t('Customer')}: ${customer?.name ?? t('N/A')}`);
+      lines.push(`${t('Credit History')}:`);
+      creditHistory.forEach((entry) => {
+        const typeLabel =
+          entry.type === 'add'
+            ? t('Added')
+            : entry.type === 'deduct'
+            ? t('Deducted')
+            : t('Used');
+        lines.push(
+          `${typeLabel} - ${formatCurrency(entry.amount)} - ${formatDateTime(
+            entry.date,
+            entry.time,
+            t('at')
+          )}${entry.description ? ` - ${entry.description}` : ''}`
+        );
+      });
+
+      const shared = await shareTextViaWhatsApp(lines.join('\n'));
+      if (!shared) {
+        Toast.show({ type: 'error', text1: t('WhatsApp not installed') });
+      }
+    } catch (error) {
+      console.error('Failed to share credit history', error);
+      Toast.show({ type: 'error', text1: t('WhatsApp share failed') });
+    }
+  };
+
+  const buildCreditHistoryHtml = () => {
+    const typeLabel = (type: string) =>
+      type === 'add' ? t('Added') : type === 'deduct' ? t('Deducted') : t('Used');
+
+    const totals = creditHistory.reduce(
+      (acc, entry) => {
+        if (entry.type === 'add') acc.added += entry.amount;
+        else if (entry.type === 'deduct') acc.deducted += entry.amount;
+        else acc.used += entry.amount;
+        return acc;
+      },
+      { added: 0, deducted: 0, used: 0 }
+    );
+
+    const rows = creditHistory
+      .map(
+        (entry) => `
+        <tr>
+          <td style="padding:6px 8px; border:1px solid #e5e7eb;">${typeLabel(entry.type)}</td>
+          <td style="padding:6px 8px; border:1px solid #e5e7eb;">${formatCurrency(
+            entry.amount
+          )}</td>
+          <td style="padding:6px 8px; border:1px solid #e5e7eb;">${formatDateTime(
+            entry.date,
+            entry.time,
+            t('at')
+          )}</td>
+          <td style="padding:6px 8px; border:1px solid #e5e7eb;">${
+            entry.description || '-'
+          }</td>
+        </tr>
+      `
+      )
+      .join('');
+
+    return `
+      <div style="font-family: Arial, sans-serif; color:#0f172a; padding:12px;">
+        <h2 style="margin-bottom:8px;">${t('Credit History')}</h2>
+        <p style="margin:0 0 12px 0;">${t('Customer')}: ${customer?.name ?? t('N/A')}</p>
+        <table style="width:100%; border-collapse:collapse; font-size:14px;">
+          <thead>
+            <tr>
+              <th style="padding:8px; border:1px solid #e5e7eb; text-align:left;">${t('Type')}</th>
+              <th style="padding:8px; border:1px solid #e5e7eb; text-align:left;">${t('Amount')}</th>
+              <th style="padding:8px; border:1px solid #e5e7eb; text-align:left;">${t('Date')}</th>
+              <th style="padding:8px; border:1px solid #e5e7eb; text-align:left;">${t('Description')}</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div style="margin-top:12px; font-size:14px;">
+          <p style="margin:4px 0;">${t('Added')}: ${formatCurrency(totals.added)}</p>
+          <p style="margin:4px 0;">${t('Used')}: ${formatCurrency(totals.used)}</p>
+          <p style="margin:4px 0;">${t('Deducted')}: ${formatCurrency(totals.deducted)}</p>
+        </div>
+      </div>
+    `;
+  };
+
+  const handleShareCreditHistoryPdf = async () => {
+    try {
+      if (!creditHistory.length) {
+        Toast.show({ type: 'info', text1: t('No credit history to share') });
+        return;
+      }
+      const html = buildCreditHistoryHtml();
+      const pdf = await createReceiptPdf(html);
+      await shareReceipt(pdf.uri);
+    } catch (error) {
+      console.error('Failed to share credit history PDF', error);
+      Toast.show({ type: 'error', text1: t('Unable to share PDF') });
+    }
+  };
+
   const handleShareAllPdf = async () => {
     try {
       if (!filteredSales.length) {
@@ -1095,7 +1205,7 @@ export default function CustomerAccountModal() {
                 <Button
                   variant="outline"
                   style={styles.shareAllButton}
-                  onPress={handleShareAll}
+                  onPress={handleShareCreditHistoryText}
                 >
                   <View style={styles.shareAllContent}>
                     <Ionicons

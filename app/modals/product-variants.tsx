@@ -110,6 +110,8 @@ export default function ProductVariantsModal() {
   });
   const [manageDetailField, setManageDetailField] = useState<DetailField | null>(null);
   const [newDetailChip, setNewDetailChip] = useState('');
+  const [showUnitSuggestions, setShowUnitSuggestions] = useState(false);
+  const stripAsterisk = (text: string) => text.replace(/\s*\*+$/, '');
   const [isBarcodeScannerVisible, setIsBarcodeScannerVisible] = useState(false);
   const [scanMode, setScanMode] = useState<ScanMode>('barcode');
   const [canScanBarcode, setCanScanBarcode] = useState(true);
@@ -156,6 +158,13 @@ export default function ProductVariantsModal() {
     () => ['Piece', 'Kg', 'Gram', 'Litre', 'Bottle', 'Pack', 'Box', 'Dozen', 'Meter', 'Foot'],
     []
   );
+  const filteredUnitSuggestions = useMemo(() => {
+    const query = form.unit.trim().toLowerCase();
+    if (!query) return UNIT_SUGGESTIONS;
+    return UNIT_SUGGESTIONS.filter(
+      (item) => item.toLowerCase().includes(query) && item.toLowerCase() !== query
+    );
+  }, [UNIT_SUGGESTIONS, form.unit]);
   const isCompactMode = variantFormMode === 'compact';
 
   useEffect(() => {
@@ -393,12 +402,44 @@ export default function ProductVariantsModal() {
 
   const renderUnitInput = () => (
     <>
-      <Input
-        label={t('Unit (Optional)')}
-        value={form.unit}
-        onChangeText={(text) => handleChange('unit', text)}
-        placeholder={t('Unit')}
-      />
+      <View style={styles.unitWrapper}>
+        <Input
+          label={t('Unit (Optional)')}
+          value={form.unit}
+          onChangeText={(text) => {
+            handleChange('unit', text);
+            setShowUnitSuggestions(true);
+          }}
+          placeholder={t('Unit')}
+        />
+        <TouchableOpacity
+          onPress={() => setShowUnitSuggestions((prev) => !prev)}
+          style={styles.unitIconButton}
+          activeOpacity={0.7}
+        >
+          <Ionicons name={showUnitSuggestions ? 'chevron-up' : 'chevron-down'} size={16} color="#6b7280" />
+        </TouchableOpacity>
+        {showUnitSuggestions && (
+          <View style={styles.unitSuggestionBox}>
+            {filteredUnitSuggestions.map((item) => (
+              <TouchableOpacity
+                key={item}
+                style={styles.unitSuggestionItem}
+                activeOpacity={0.85}
+                onPress={() => {
+                  handleChange('unit', item);
+                  setShowUnitSuggestions(false);
+                }}
+              >
+                <Text style={styles.unitSuggestionText}>{item}</Text>
+              </TouchableOpacity>
+            ))}
+            {filteredUnitSuggestions.length === 0 && (
+              <Text style={styles.unitSuggestionEmpty}>{t('Type to search units')}</Text>
+            )}
+          </View>
+        )}
+      </View>
       <View style={styles.quickUnitRow}>
         <Text style={styles.quickUnitTitle}>{t('Quick Unit Suggestions')}</Text>
         <View style={styles.quickChipGrid}>
@@ -408,7 +449,10 @@ export default function ProductVariantsModal() {
               <TouchableOpacity
                 key={`unit-${item}`}
                 style={[styles.quickChip, isActive && styles.quickChipActive]}
-                onPress={() => handleChange('unit', item)}
+                onPress={() => {
+                  handleChange('unit', item);
+                  setShowUnitSuggestions(false);
+                }}
                 activeOpacity={0.85}
               >
                 <Ionicons
@@ -495,34 +539,9 @@ export default function ProductVariantsModal() {
   };
 
   const validate = () => {
-    const currentErrors: Record<string, string> = {};
-
-    if (!form.name.trim()) {
-      currentErrors.name = t('Required field');
-    }
-
-    const priceValue = Number.parseFloat(form.price);
-    if (!Number.isFinite(priceValue) || priceValue <= 0) {
-      currentErrors.price = t('Required field');
-    }
-
-    const costValue = Number.parseFloat(form.costPrice);
-    if (!Number.isFinite(costValue) || costValue <= 0) {
-      currentErrors.costPrice = t('Required field');
-    }
-
-    const stockValue = Number.parseFloat(form.stock);
-    if (!Number.isFinite(stockValue) || stockValue < 0) {
-      currentErrors.stock = t('Required field');
-    }
-
-    const minStockValue = Number.parseFloat(form.minStock);
-    if (!Number.isFinite(minStockValue) || minStockValue < 0) {
-      currentErrors.minStock = t('Required field');
-    }
-
-    setErrors(currentErrors);
-    return Object.keys(currentErrors).length === 0;
+    // Allow adding variants even if some fields are empty; defaults applied on save
+    setErrors({});
+    return true;
   };
 
   const handleAddVariant = async () => {
@@ -530,19 +549,25 @@ export default function ProductVariantsModal() {
       return;
     }
 
+    const parseNumberOrZero = (value: string) => {
+      const parsed = Number.parseFloat(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    const variantName = form.name.trim() || 'Variant';
+
     const newVariant: Variant = {
       id: Date.now(),
-      name: form.name.trim(),
+      name: variantName,
       design: form.design.trim() || undefined,
       size: form.size.trim() || undefined,
       color: form.color.trim() || undefined,
       material: form.material.trim() || undefined,
       customAttributeLabel: form.customAttributeLabel.trim() || undefined,
       customAttributeValue: form.customAttributeValue.trim() || undefined,
-      price: Number.parseFloat(form.price),
-      costPrice: Number.parseFloat(form.costPrice),
-      stock: Number.parseFloat(form.stock),
-      minStock: Number.parseFloat(form.minStock),
+      price: parseNumberOrZero(form.price),
+      costPrice: parseNumberOrZero(form.costPrice),
+      stock: parseNumberOrZero(form.stock),
+      minStock: parseNumberOrZero(form.minStock),
       unit: form.unit.trim() || undefined,
       barcode: form.barcode.trim() || undefined,
     };
@@ -752,7 +777,7 @@ export default function ProductVariantsModal() {
 
             <View style={styles.row}>
               <Input
-                label={t('Selling Price (Rs.)')}
+                label={stripAsterisk(t('Selling Price (Rs.)'))}
                 value={form.price}
                 onChangeText={(text) => handleChange('price', text)}
                 keyboardType="numeric"
@@ -761,7 +786,7 @@ export default function ProductVariantsModal() {
                 containerStyle={styles.flexItem}
               />
               <Input
-                label={t('Cost Price (Rs.)')}
+                label={stripAsterisk(t('Cost Price (Rs.)'))}
                 value={form.costPrice}
                 onChangeText={(text) => handleChange('costPrice', text)}
                 keyboardType="numeric"
@@ -773,7 +798,7 @@ export default function ProductVariantsModal() {
 
             <View style={styles.row}>
               <Input
-                label={t('Stock')}
+                label={stripAsterisk(t('Stock'))}
                 value={form.stock}
                 onChangeText={(text) => handleChange('stock', text)}
                 keyboardType="numeric"
@@ -782,7 +807,7 @@ export default function ProductVariantsModal() {
                 containerStyle={styles.flexItem}
               />
               <Input
-                label={t('Min. Stock')}
+                label={stripAsterisk(t('Min. Stock'))}
                 value={form.minStock}
                 onChangeText={(text) => handleChange('minStock', text)}
                 keyboardType="numeric"
@@ -1345,6 +1370,48 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     marginBottom: 12,
+  },
+  unitWrapper: {
+    position: 'relative',
+  },
+  unitIconButton: {
+    position: 'absolute',
+    right: spacing.md,
+    top: 42,
+    padding: spacing.xs,
+    zIndex: 2,
+  },
+  unitSuggestionBox: {
+    position: 'absolute',
+    top: 68,
+    left: 0,
+    right: 0,
+    backgroundColor: '#ffffff',
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+    zIndex: 3,
+    paddingVertical: 4,
+  },
+  unitSuggestionItem: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  unitSuggestionText: {
+    color: '#111827',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  unitSuggestionEmpty: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    color: '#6b7280',
+    fontSize: 14,
   },
   quickUnitRow: {
     gap: 6,

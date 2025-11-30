@@ -149,7 +149,7 @@ export default function SettingsScreen() {
   const [backupFileName, setBackupFileName] = useState(getDefaultBackupFileName);
   const [lastInventoryBackup, setLastInventoryBackup] = useState<InventoryBackupInfo | null>(null);
   const [isClearingInventory, setIsClearingInventory] = useState(false);
-  const [cacheScheduleEnabled, setCacheScheduleEnabled] = useState(false);
+  const [cacheScheduleEnabled, setCacheScheduleEnabled] = useState(true);
   const [cacheIntervalHours, setCacheIntervalHours] = useState<number>(24);
   const [lastCacheClear, setLastCacheClear] = useState<string | null>(null);
   const [isUpdatingCacheSchedule, setIsUpdatingCacheSchedule] = useState(false);
@@ -384,6 +384,14 @@ export default function SettingsScreen() {
     try {
       const raw = await AsyncStorage.getItem(CACHE_SCHEDULE_KEY);
       if (!raw) {
+        // Default: enable daily schedule
+        setCacheScheduleEnabled(true);
+        setCacheIntervalHours(24);
+        persistCacheSchedule({
+          enabled: true,
+          intervalHours: 24,
+          lastClearedAt: lastCacheClear,
+        });
         return;
       }
       const parsed = JSON.parse(raw);

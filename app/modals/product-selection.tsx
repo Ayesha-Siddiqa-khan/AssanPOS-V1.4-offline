@@ -834,6 +834,7 @@ export default function ProductSelectionModal() {
 
   const sanitizeQuantityInput = (value: string) =>
     value
+      .replace(/,/g, '.') // Support comma decimal separators
       .replace(/[^\d.]/g, '')
       // Keep only the first decimal point
       .replace(/(\..*)\./g, '$1');
@@ -1626,8 +1627,8 @@ export default function ProductSelectionModal() {
                   <View style={styles.inlineInput}>
                     <TextInput
                       value={randomPurchaseInput}
-                      onChangeText={setRandomPurchaseInput}
-                      keyboardType="numeric"
+                      onChangeText={(text) => setRandomPurchaseInput(text.replace(/,/g, '.'))}
+                      keyboardType="decimal-pad"
                       placeholder={t('e.g. delivery charges, packaging')}
                       placeholderTextColor="#9ca3af"
                       style={[styles.textField, styles.extraAmountField]}
@@ -1836,12 +1837,13 @@ export default function ProductSelectionModal() {
                   label={t('Price')}
                   value={customPrice}
                   onChangeText={(value) => {
-                    setCustomPrice(value);
+                    const normalized = value.replace(/,/g, '.');
+                    setCustomPrice(normalized);
                     if (customPriceError) {
                       setCustomPriceError(null);
                     }
                   }}
-                  keyboardType="numeric"
+                  keyboardType="decimal-pad"
                   placeholder={t('Enter price')}
                   error={customPriceError ?? undefined}
                   ref={customPriceInputRef}
@@ -1856,8 +1858,8 @@ export default function ProductSelectionModal() {
                 <Input
                   label={t('Quantity')}
                   value={customQuantity}
-                  onChangeText={setCustomQuantity}
-                  keyboardType="numeric"
+                  onChangeText={(value) => setCustomQuantity(value.replace(/,/g, '.'))}
+                  keyboardType="decimal-pad"
                   placeholder="1"
                   containerStyle={styles.inlineInput}
                 />

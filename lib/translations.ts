@@ -49,6 +49,7 @@ const TRANSLATION_DICTIONARY: Record<string, TranslationPair> = {
   'Metric': ['Metric', 'Metric'],
 
   'Units': ['Units', 'Units'],
+  'Type to search units': ['Type to search units', 'Type to search units'],
 
   'Method': ['Method', 'Method'],
 
@@ -991,6 +992,8 @@ const TRANSLATION_DICTIONARY: Record<string, TranslationPair> = {
   'Mobile': ['Mobile', 'Ù…ÙˆØ¨Ø§Ø¦Ù„'],
 
   'Unit': ['Unit', 'Unit'],
+  'Unit (Optional)': ['Unit (Optional)', 'Unit (Optional)'],
+  'Quick Unit Suggestions': ['Quick Unit Suggestions', 'Quick Unit Suggestions'],
 
   'Piece': ['Piece', 'Piece'],
 
@@ -1334,5 +1337,3 @@ export function registerTranslation(
 
 
 export const availableTranslations = TRANSLATION_DICTIONARY;
-
-

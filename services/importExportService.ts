@@ -85,6 +85,7 @@ type ExportableVariant = {
   size?: string;
   color?: string;
   material?: string;
+  unit?: string;
   price: number;
   stock: number;
   minStock: number;
@@ -204,6 +205,7 @@ const sanitizeVariant = (variant: any, fallbackId: number): ExportableVariant | 
     size: toNullableString(variant.size) ?? undefined,
     color: toNullableString(variant.color) ?? undefined,
     material: toNullableString(variant.material) ?? undefined,
+    unit: toNullableString(variant.unit) ?? undefined,
     price: toNumberWithFallback(variant.price),
     stock: toNumberWithFallback(variant.stock),
     minStock: toNumberWithFallback(variant.minStock),

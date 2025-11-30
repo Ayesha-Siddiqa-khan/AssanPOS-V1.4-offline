@@ -34,6 +34,7 @@ interface Variant {
   size?: string;
   color?: string;
   material?: string;
+  unit?: string;
   price: number;
   stock: number;
   minStock: number;

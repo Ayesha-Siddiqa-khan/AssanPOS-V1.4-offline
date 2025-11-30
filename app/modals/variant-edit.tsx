@@ -50,6 +50,7 @@ export default function VariantEditModal() {
   const [costPrice, setCostPrice] = useState('');
   const [stock, setStock] = useState('');
   const [minStock, setMinStock] = useState('');
+  const [unit, setUnit] = useState('');
   const [barcode, setBarcode] = useState('');
   const [errors, setErrors] = useState<Record<string, string | null>>({});
   const [isSaving, setIsSaving] = useState(false);
@@ -67,6 +68,7 @@ export default function VariantEditModal() {
       setCostPrice(variant.costPrice != null ? variant.costPrice.toString() : '');
       setStock(variant.stock != null ? variant.stock.toString() : '');
       setMinStock(variant.minStock != null ? variant.minStock.toString() : '');
+      setUnit(variant.unit ?? '');
       setBarcode(variant.barcode ?? '');
     }
   }, [variant]);
@@ -117,6 +119,7 @@ const validate = () => {
             costPrice: Number.parseFloat(costPrice),
             stock: Number.parseFloat(stock),
             minStock: Number.parseFloat(minStock),
+            unit: unit.trim() || undefined,
             barcode: barcode.trim() || undefined,
           };
         }
@@ -271,6 +274,13 @@ const validate = () => {
           value={barcode}
           onChangeText={setBarcode}
           placeholder={t('Enter barcode')}
+        />
+
+        <Input
+          label={t('Unit (Optional)')}
+          value={unit}
+          onChangeText={setUnit}
+          placeholder={t('Unit')}
         />
           </ScrollView>
           <View

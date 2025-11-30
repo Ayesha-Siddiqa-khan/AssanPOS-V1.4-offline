@@ -60,7 +60,7 @@ export default function ProductEntryModal() {
     product?.minStock !== undefined ? String(product.minStock) : ''
   );
   const [barcode, setBarcode] = useState(product?.barcode ?? '');
-  const [unit, setUnit] = useState(product?.unit ?? 'Piece');
+  const [unit, setUnit] = useState(product?.unit ?? '');
   const [hasVariants, setHasVariants] = useState(product?.hasVariants ?? false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showQuickCategories, setShowQuickCategories] = useState(false);
@@ -79,6 +79,7 @@ export default function ProductEntryModal() {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [errors, setErrors] = useState<{ name?: string; price?: string }>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [showUnitSuggestions, setShowUnitSuggestions] = useState(false);
 
   useEffect(() => {
     if (product) {
@@ -188,6 +189,24 @@ export default function ProductEntryModal() {
     setShowScanner(false);
     Toast.show({ type: 'success', text1: t('Barcode captured'), text2: data });
     setTimeout(() => setCanScanBarcode(true), 1500);
+  };
+
+  const UNIT_SUGGESTIONS = useMemo(
+    () => ['Piece', 'Kg', 'Gram', 'Litre', 'Bottle', 'Pack', 'Box', 'Dozen', 'Meter', 'Foot', 'Set'],
+    []
+  );
+
+  const filteredUnitSuggestions = useMemo(() => {
+    const query = unit.trim().toLowerCase();
+    if (!query) return UNIT_SUGGESTIONS;
+    return UNIT_SUGGESTIONS.filter(
+      (item) => item.toLowerCase().includes(query) && item.toLowerCase() !== query
+    );
+  }, [UNIT_SUGGESTIONS, unit]);
+
+  const handleUnitChange = (value: string) => {
+    setUnit(value);
+    setShowUnitSuggestions(true);
   };
 
   return (
@@ -391,10 +410,36 @@ export default function ProductEntryModal() {
                 <Input
                   label={t('Unit (Optional)')}
                   value={unit}
-                  onChangeText={setUnit}
+                  onChangeText={handleUnitChange}
                   placeholder={t('Piece')}
                 />
-                <Ionicons name="chevron-down" size={16} color="#6b7280" style={styles.unitIcon} />
+                <TouchableOpacity
+                  onPress={() => setShowUnitSuggestions((prev) => !prev)}
+                  style={styles.unitIconButton}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="chevron-down" size={16} color="#6b7280" />
+                </TouchableOpacity>
+                {showUnitSuggestions && (
+                  <View style={styles.unitSuggestionBox}>
+                    {filteredUnitSuggestions.map((item) => (
+                      <TouchableOpacity
+                        key={item}
+                        style={styles.unitSuggestionItem}
+                        activeOpacity={0.85}
+                        onPress={() => {
+                          setUnit(item);
+                          setShowUnitSuggestions(false);
+                        }}
+                      >
+                        <Text style={styles.unitSuggestionText}>{item}</Text>
+                      </TouchableOpacity>
+                    ))}
+                    {filteredUnitSuggestions.length === 0 && (
+                      <Text style={styles.unitSuggestionEmpty}>{t('Type to search units')}</Text>
+                    )}
+                  </View>
+                )}
               </View>
 
               <View style={styles.actions}>
@@ -794,10 +839,44 @@ const styles = StyleSheet.create({
   unitWrapper: {
     position: 'relative',
   },
-  unitIcon: {
+  unitIconButton: {
     position: 'absolute',
     right: spacing.md,
     top: 42,
+    padding: spacing.xs,
+    zIndex: 2,
+  },
+  unitSuggestionBox: {
+    position: 'absolute',
+    top: 68,
+    left: 0,
+    right: 0,
+    backgroundColor: '#ffffff',
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+    zIndex: 3,
+    paddingVertical: 4,
+  },
+  unitSuggestionItem: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  unitSuggestionText: {
+    color: '#111827',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  unitSuggestionEmpty: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    color: '#6b7280',
+    fontSize: 14,
   },
   barcodeWrapper: {
     position: 'relative',

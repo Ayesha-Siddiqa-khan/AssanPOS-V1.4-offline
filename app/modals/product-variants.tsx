@@ -36,6 +36,7 @@ interface Variant {
   size?: string;
   color?: string;
   material?: string;
+  unit?: string;
   customAttributeLabel?: string;
   customAttributeValue?: string;
   price: number;
@@ -57,6 +58,7 @@ const INITIAL_FORM = {
   costPrice: '',
   stock: '',
   minStock: '',
+  unit: '',
   barcode: '',
 };
 const QUICK_VARIANT_SETTING_KEY = 'inventory.quickVariants';
@@ -149,6 +151,10 @@ export default function ProductVariantsModal() {
       },
     ],
     [t]
+  );
+  const UNIT_SUGGESTIONS = useMemo(
+    () => ['Piece', 'Kg', 'Gram', 'Litre', 'Bottle', 'Pack', 'Box', 'Dozen', 'Meter', 'Foot'],
+    []
   );
   const isCompactMode = variantFormMode === 'compact';
 
@@ -385,6 +391,47 @@ export default function ProductVariantsModal() {
     </View>
   );
 
+  const renderUnitInput = () => (
+    <>
+      <Input
+        label={t('Unit (Optional)')}
+        value={form.unit}
+        onChangeText={(text) => handleChange('unit', text)}
+        placeholder={t('Unit')}
+      />
+      <View style={styles.quickUnitRow}>
+        <Text style={styles.quickUnitTitle}>{t('Quick Unit Suggestions')}</Text>
+        <View style={styles.quickChipGrid}>
+          {UNIT_SUGGESTIONS.map((item) => {
+            const isActive = item.toLowerCase() === form.unit.trim().toLowerCase();
+            return (
+              <TouchableOpacity
+                key={`unit-${item}`}
+                style={[styles.quickChip, isActive && styles.quickChipActive]}
+                onPress={() => handleChange('unit', item)}
+                activeOpacity={0.85}
+              >
+                <Ionicons
+                  name="cube-outline"
+                  size={14}
+                  color={isActive ? '#ffffff' : '#2563eb'}
+                />
+                <Text
+                  style={[
+                    styles.quickChipText,
+                    isActive && styles.quickChipTextActive,
+                  ]}
+                >
+                  {item}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+    </>
+  );
+
   const handleAddDetailChip = () => {
     if (!manageDetailField) {
       return;
@@ -496,6 +543,7 @@ export default function ProductVariantsModal() {
       costPrice: Number.parseFloat(form.costPrice),
       stock: Number.parseFloat(form.stock),
       minStock: Number.parseFloat(form.minStock),
+      unit: form.unit.trim() || undefined,
       barcode: form.barcode.trim() || undefined,
     };
 
@@ -531,6 +579,7 @@ export default function ProductVariantsModal() {
       costPrice: variant.costPrice.toString(),
       stock: variant.stock.toString(),
       minStock: variant.minStock.toString(),
+      unit: variant.unit ?? '',
       barcode: variant.barcode ?? '',
     });
     setErrors({});
@@ -743,7 +792,12 @@ export default function ProductVariantsModal() {
               />
             </View>
 
-            {isCompactMode && renderBarcodeInput()}
+            {isCompactMode && (
+              <>
+                {renderBarcodeInput()}
+                {renderUnitInput()}
+              </>
+            )}
 
             {!isCompactMode && (
               <>
@@ -854,6 +908,7 @@ export default function ProductVariantsModal() {
             ) : (
               <>
                 {renderBarcodeInput()}
+                {renderUnitInput()}
                 <View style={styles.quickHeader}>
                   <TouchableOpacity
                     style={styles.quickToggle}
@@ -945,12 +1000,16 @@ export default function ProductVariantsModal() {
                   <View style={styles.variantInfo}>
                     <Text style={styles.variantName}>{variant.name}</Text>
                     <Text style={styles.variantMeta}>
-                      {t('Price')}: Rs. {variant.price.toFixed(0)} • {t('Stock')}:{' '}
-                      {variant.stock.toString()}
+                      {t('Price')}: Rs. {variant.price.toFixed(0)} | {t('Stock')}: {variant.stock.toString()}
                     </Text>
                     <Text style={styles.variantMeta}>
                       {t('Cost Price (Rs.)')}: Rs. {variant.costPrice.toFixed(0)}
                     </Text>
+                    {variant.unit && (
+                      <Text style={styles.variantMeta}>
+                        {t('Unit')}: {variant.unit}
+                      </Text>
+                    )}
                     {variant.barcode && (
                       <Text style={styles.variantMeta}>
                         {t('Barcode (Optional)')}: {variant.barcode}
@@ -1286,6 +1345,15 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     marginBottom: 12,
+  },
+  quickUnitRow: {
+    gap: 6,
+    marginTop: -6,
+  },
+  quickUnitTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0f172a',
   },
   quickChip: {
     flexDirection: 'row',

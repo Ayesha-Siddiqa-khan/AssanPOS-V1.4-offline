@@ -179,6 +179,22 @@ export default function ProductSelectionModal() {
     });
   }, [cart, activeQuantityKey]);
 
+  // Keep cart quantities in sync even if the user doesn't blur the input
+  useEffect(() => {
+    cart.forEach((item) => {
+      const key = getQuantityKey(item.productId, item.variantId ?? null);
+      const rawValue = quantityInputs[key];
+      if (rawValue == null) return;
+
+      const { parsed } = parseQuantityInput(rawValue);
+      if (!parsed) return;
+
+      if (parsed !== item.quantity) {
+        updateQuantity(item.productId, item.variantId ?? null, parsed);
+      }
+    });
+  }, [cart, quantityInputs, updateQuantity]);
+
   useEffect(() => {
     // Removed initial auto-focus to prevent keyboard popping up by default
   }, []);
@@ -816,6 +832,21 @@ export default function ProductSelectionModal() {
 
   type CartItem = (typeof cart)[number];
 
+  const sanitizeQuantityInput = (value: string) =>
+    value
+      .replace(/[^\d.]/g, '')
+      // Keep only the first decimal point
+      .replace(/(\..*)\./g, '$1');
+
+  const parseQuantityInput = (value: string) => {
+    const sanitized = sanitizeQuantityInput(value);
+    const parsed = Number(sanitized);
+    return {
+      sanitized,
+      parsed: Number.isFinite(parsed) && parsed > 0 ? parsed : null,
+    };
+  };
+
   const handleStepQuantity = (item: CartItem, delta: number) => {
     const nextQuantity = item.quantity + delta;
     const key = getQuantityKey(item.productId, item.variantId ?? null);
@@ -831,23 +862,21 @@ export default function ProductSelectionModal() {
     });
   };
 
-  const handleQuantityInputChange = (key: string, value: string) => {
-    const sanitized = value.replace(/[^0-9]/g, '');
+  const handleQuantityInputChange = (key: string, value: string, item: CartItem) => {
+    const { sanitized, parsed } = parseQuantityInput(value);
     setQuantityInputs((prev) => ({ ...prev, [key]: sanitized }));
+
+    // Apply quantity as the user types so totals stay in sync without needing blur
+    if (parsed && parsed !== item.quantity) {
+      updateQuantity(item.productId, item.variantId ?? null, parsed);
+    }
   };
 
   const handleQuantityInputCommit = (item: CartItem, value: string) => {
-    const sanitized = value.replace(/[^0-9]/g, '');
+    const { sanitized, parsed } = parseQuantityInput(value);
     const key = getQuantityKey(item.productId, item.variantId ?? null);
 
-    if (!sanitized) {
-      setQuantityInputs((prev) => ({ ...prev, [key]: String(item.quantity) }));
-      return;
-    }
-
-    const parsed = Number(sanitized);
-
-    if (!Number.isFinite(parsed) || parsed <= 0) {
+    if (!parsed) {
       Toast.show({ type: 'error', text1: t('Enter a valid quantity') });
       setQuantityInputs((prev) => ({ ...prev, [key]: String(item.quantity) }));
       return;
@@ -1488,14 +1517,14 @@ export default function ProductSelectionModal() {
                               activeQuantityKey === quantityKey && styles.quantityInputFocused,
                             ]}
                             value={quantityValue}
-                            onChangeText={(text) => handleQuantityInputChange(quantityKey, text)}
+                            onChangeText={(text) => handleQuantityInputChange(quantityKey, text, item)}
                             onFocus={() => setActiveQuantityKey(quantityKey)}
                             onBlur={() => {
                               setActiveQuantityKey(null);
                               handleQuantityInputCommit(item, quantityValue);
                             }}
                             onSubmitEditing={() => handleQuantityInputCommit(item, quantityValue)}
-                            keyboardType="number-pad"
+                            keyboardType="decimal-pad"
                             returnKeyType="done"
                           />
                           <TouchableOpacity

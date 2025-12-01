@@ -182,7 +182,7 @@ const validate = () => {
             setErrors((prev) => ({ ...prev, price: null }));
           }}
           keyboardType="numeric"
-          placeholder={t('Enter amount')}
+          placeholder="0"
           error={errors.price ?? undefined}
           containerStyle={styles.flexItem}
         />
@@ -194,7 +194,7 @@ const validate = () => {
             setErrors((prev) => ({ ...prev, costPrice: null }));
           }}
           keyboardType="numeric"
-          placeholder={t('Enter amount')}
+          placeholder="0"
           error={errors.costPrice ?? undefined}
           containerStyle={styles.flexItem}
         />
@@ -209,7 +209,7 @@ const validate = () => {
             setErrors((prev) => ({ ...prev, stock: null }));
           }}
           keyboardType="numeric"
-          placeholder={t('Enter quantity')}
+          placeholder="0"
           error={errors.stock ?? undefined}
           containerStyle={styles.flexItem}
         />
@@ -221,7 +221,7 @@ const validate = () => {
             setErrors((prev) => ({ ...prev, minStock: null }));
           }}
           keyboardType="numeric"
-          placeholder={t('Enter minimum')}
+          placeholder="0"
           error={errors.minStock ?? undefined}
           containerStyle={styles.flexItem}
         />

@@ -138,18 +138,18 @@ export default function HomeScreen() {
     const items: Array<{ key: string; name: string; stock: number; target: number }> = [];
 
     products.forEach((product) => {
-      if (product.hasVariants && product.variants?.length) {
-        product.variants.forEach((variant) => {
-          const target = variant.minStock ?? product.minStock ?? 0;
-          const stock = variant.stock ?? 0;
-          if (target > 0 && stock <= target) {
-            items.push({
-              key: `variant-${variant.id}`,
-              name: `${product.name} - ${variant.name}`,
-              stock,
-              target,
-            });
-          }
+          if (product.hasVariants && product.variants?.length) {
+            product.variants.forEach((variant) => {
+              const target = variant.minStock ?? product.minStock ?? 0;
+              const stock = variant.stock ?? 0;
+              if (target > 0 && stock <= target) {
+                items.push({
+                  key: `variant-${product.id}-${variant.id}`,
+                  name: `${product.name} - ${variant.name}`,
+                  stock,
+                  target,
+                });
+              }
         });
       } else {
         const target = product.minStock ?? 0;

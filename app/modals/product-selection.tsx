@@ -550,8 +550,10 @@ export default function ProductSelectionModal() {
     [t]
   );
   const isInstantAddMode = instantAddMode === 'direct';
-  const getQuantityKey = (productId: number, variantId: number | null) =>
-    `${productId}-${variantId ?? 'base'}`;
+
+  function getQuantityKey(productId: number, variantId: number | null) {
+    return `${productId}-${variantId ?? 'base'}`;
+  }
 
   const getResolvedPrice = (product: (typeof products)[number], variant?: any) => {
     const rawPrice = variant?.price ?? product.price ?? 0;
@@ -565,7 +567,7 @@ export default function ProductSelectionModal() {
     return Number.isFinite(parsed) ? parsed : 0;
   };
 
-  const getVariantArray = (product: (typeof products)[number]) => {
+  function getVariantArray(product: (typeof products)[number]) {
     const variants = (product as any)?.variants;
     if (Array.isArray(variants)) {
       return variants;
@@ -581,7 +583,7 @@ export default function ProductSelectionModal() {
       }
     }
     return [];
-  };
+  }
 
   const getAvailableStock = (product: (typeof products)[number], variant?: any) => {
     const stock = variant?.stock ?? product.stock;
@@ -1468,71 +1470,79 @@ export default function ProductSelectionModal() {
           {filteredProducts.length > 0 && (
             <View style={styles.resultsContainer}>
               <Text style={styles.resultsTitle}>{t('Search Results')}</Text>
-              {filteredProducts.map((product) => (
-                <View key={product.id} style={styles.productCard}>
-                  <View style={styles.productHeader}>
-                    <View>
-                      <Text style={styles.productName}>{product.name}</Text>
-                      <Text style={styles.productCategory}>{product.category}</Text>
-                      </View>
-                    {!product.hasVariants && (
-                      <View style={styles.productPrice}>
-                        <Text style={styles.productPriceValue}>
-                          Rs. {getResolvedPrice(product).toLocaleString()}
-                        </Text>
-                        <Button size="sm" onPress={() => handleAddProduct(product)}>
-                          {t('Add Item')}
-                        </Button>
+              {filteredProducts.map((product, productIndex) => {
+                const productKey = product.id ?? product.barcode ?? product.name ?? productIndex;
+                const productStableKey = `product-${productKey}`;
+                const variants = getVariantArray(product);
+                return (
+                  <View key={productStableKey} style={styles.productCard}>
+                    <View style={styles.productHeader}>
+                      <View>
+                        <Text style={styles.productName}>{product.name}</Text>
+                        <Text style={styles.productCategory}>{product.category}</Text>
                         </View>
+                      {!product.hasVariants && (
+                        <View style={styles.productPrice}>
+                          <Text style={styles.productPriceValue}>
+                            Rs. {getResolvedPrice(product).toLocaleString()}
+                          </Text>
+                          <Button size="sm" onPress={() => handleAddProduct(product)}>
+                            {t('Add Item')}
+                          </Button>
+                          </View>
+                      )}
+                    </View>
+
+                    {product.hasVariants && variants.length > 0 && (
+                      <View style={styles.variantList}>
+                        {variants.map((variant: any, variantIndex: number) => {
+                          const variantKey = `${productStableKey}-variant-${
+                            variant.id ?? variant.barcode ?? variantIndex
+                          }`;
+                          const detailTags = [
+                            variant.size ? `${t('Size')}: ${variant.size}` : null,
+                            variant.color ? `${t('Color')}: ${variant.color}` : null,
+                            variant.material ? `${t('Material / Brand')}: ${variant.material}` : null,
+                            variant.customAttributeLabel && variant.customAttributeValue
+                              ? `${variant.customAttributeLabel}: ${variant.customAttributeValue}`
+                              : null,
+                          ].filter(Boolean);
+                          return (
+                            <View key={variantKey} style={styles.variantRow}>
+                              <View style={styles.variantDetails}>
+                                <Text style={styles.variantName}>{variant.name}</Text>
+                                {detailTags.length > 0 && (
+                                  <View style={styles.variantMetaChips}>
+                                    {detailTags.map((tag, idx) => (
+                                      <Text key={`${variantKey}-tag-${idx}`} style={styles.variantMetaChip}>
+                                        {tag}
+                                      </Text>
+                                    ))}
+                                  </View>
+                                )}
+                                {!detailTags.length && variant.design ? (
+                                  <Text style={styles.variantMeta}>{variant.design}</Text>
+                                ) : null}
+                              </View>
+                              <View style={styles.variantActions}>
+                                <Text style={styles.variantPrice}>
+                                  Rs. {getResolvedPrice(product, variant).toLocaleString()}
+                                </Text>
+                                <Button
+                                  size="sm"
+                                  onPress={() => handleAddProduct(product, variant)}
+                                >
+                                  {t('Add Item')}
+                                </Button>
+                              </View>
+                            </View>
+                          );
+                        })}
+                      </View>
                     )}
                   </View>
-
-                  {product.hasVariants && getVariantArray(product).length > 0 && (
-                    <View style={styles.variantList}>
-                      {getVariantArray(product).map((variant: any) => {
-                        const detailTags = [
-                          variant.size ? `${t('Size')}: ${variant.size}` : null,
-                          variant.color ? `${t('Color')}: ${variant.color}` : null,
-                          variant.material ? `${t('Material / Brand')}: ${variant.material}` : null,
-                          variant.customAttributeLabel && variant.customAttributeValue
-                            ? `${variant.customAttributeLabel}: ${variant.customAttributeValue}`
-                            : null,
-                        ].filter(Boolean);
-                        return (
-                          <View key={variant.id} style={styles.variantRow}>
-                            <View style={styles.variantDetails}>
-                              <Text style={styles.variantName}>{variant.name}</Text>
-                              {detailTags.length > 0 && (
-                                <View style={styles.variantMetaChips}>
-                                  {detailTags.map((tag, idx) => (
-                                    <Text key={idx} style={styles.variantMetaChip}>
-                                      {tag}
-                                    </Text>
-                                  ))}
-                                </View>
-                              )}
-                              {!detailTags.length && variant.design ? (
-                                <Text style={styles.variantMeta}>{variant.design}</Text>
-                              ) : null}
-                            </View>
-                            <View style={styles.variantActions}>
-                              <Text style={styles.variantPrice}>
-                                Rs. {getResolvedPrice(product, variant).toLocaleString()}
-                              </Text>
-                              <Button
-                                size="sm"
-                                onPress={() => handleAddProduct(product, variant)}
-                              >
-                                {t('Add Item')}
-                              </Button>
-                            </View>
-                          </View>
-                        );
-                      })}
-                    </View>
-                  )}
-                </View>
-              ))}
+                );
+              })}
             </View>
           )}
 

@@ -173,8 +173,13 @@ export default function HomeScreen() {
   };
 
   const handleStartSale = () => {
-    resetSale();
-    router.push('/modals/product-selection');
+    try {
+      resetSale();
+      router.push('/modals/product-selection');
+    } catch (error) {
+      console.error('[Home] Failed to start sale', error);
+      Toast.show({ type: 'error', text1: t('Unable to start sale') });
+    }
   };
 
   const handleOpenEmail = () => {
@@ -1020,4 +1025,3 @@ const styles = StyleSheet.create({
     color: '#6b7280',
   },
 });
-

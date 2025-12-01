@@ -1336,8 +1336,9 @@ export default function ProductSelectionModal() {
               }
               if (filteredProducts.length > 0) {
                 const firstProduct = filteredProducts[0];
-                if (firstProduct.hasVariants && firstProduct.variants && firstProduct.variants.length > 0) {
-                  handleAddProduct(firstProduct, firstProduct.variants[0]);
+                const variants = getVariantArray(firstProduct);
+                if (firstProduct.hasVariants && variants.length > 0) {
+                  handleAddProduct(firstProduct, variants[0]);
                 } else {
                   handleAddProduct(firstProduct);
                 }

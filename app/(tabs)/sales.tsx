@@ -127,9 +127,9 @@ export default function SalesScreen() {
           style={styles.newSaleButton}
           onPress={() => {
             try {
-              console.log('[Sales] Starting new sale, resetting cart');
+              if (__DEV__) console.log('[Sales] Starting new sale, resetting cart');
               resetSale();
-              console.log('[Sales] Cart reset, navigating to product selection');
+              if (__DEV__) console.log('[Sales] Cart reset, navigating to product selection');
               setTimeout(() => {
                 router.push('/modals/product-selection');
               }, 100);

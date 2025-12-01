@@ -223,11 +223,13 @@ export default function SettingsScreen() {
       const isEnrolled = await LocalAuthentication.isEnrolledAsync();
       const userId = await getBiometricUserId();
       
-      console.log('[Settings] ========== CHECKING BIOMETRIC STATE ==========');
-      console.log('[Settings] Biometric hardware:', hasHardware);
-      console.log('[Settings] Biometric enrolled:', isEnrolled);
-      console.log('[Settings] Saved user ID:', userId);
-      console.log('[Settings] Current user ID:', currentUser?.id);
+      if (__DEV__) {
+        console.log('[Settings] ========== CHECKING BIOMETRIC STATE ==========');
+        console.log('[Settings] Biometric hardware:', hasHardware);
+        console.log('[Settings] Biometric enrolled:', isEnrolled);
+        console.log('[Settings] Saved user ID:', userId);
+        console.log('[Settings] Current user ID:', currentUser?.id);
+      }
       
       // Biometric is enabled if:
       // 1. Hardware exists
@@ -235,8 +237,10 @@ export default function SettingsScreen() {
       // 3. User ID is saved in SecureStore
       const isEnabled = !!userId && hasHardware && isEnrolled;
       
-      console.log('[Settings] Biometric enabled state:', isEnabled);
-      console.log('[Settings] ================================================');
+      if (__DEV__) {
+        console.log('[Settings] Biometric enabled state:', isEnabled);
+        console.log('[Settings] ================================================');
+      }
       
       // Show as available if hardware exists, even if not enrolled yet
       setBiometricAvailable(hasHardware);
@@ -312,11 +316,11 @@ export default function SettingsScreen() {
         }
         
         // Enable biometric - use authService to ensure correct keys
-        console.log('[Settings] Enabling biometric for user:', currentUser.id);
+        if (__DEV__) console.log('[Settings] Enabling biometric for user:', currentUser.id);
         await enableBiometrics(currentUser.id);
         await SecureStore.setItemAsync('pos.biometric.hasLoggedIn', 'true');
         setBiometricEnabled(true);
-        console.log('[Settings] Biometric enabled successfully');
+        if (__DEV__) console.log('[Settings] Biometric enabled successfully');
         Toast.show({ type: 'success', text1: t('Biometric authentication enabled') });
       }
     } catch (error) {

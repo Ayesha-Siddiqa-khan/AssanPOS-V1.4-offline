@@ -310,7 +310,7 @@ export default function PurchaseEntryModal() {
       return;
     }
     Vibration.vibrate(50);
-    console.log('[DEBUG] purchase entry scan:', value);
+    if (__DEV__) console.log('[DEBUG] purchase entry scan:', value);
     Toast.show({ type: 'info', text1: 'Scanned (purchase entry)', text2: value });
     setCanScanBarcode(false);
     const normalizeBarcode = (input: string | number | null | undefined) =>

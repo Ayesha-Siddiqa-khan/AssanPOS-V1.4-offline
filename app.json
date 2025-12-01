@@ -2,11 +2,12 @@
   "expo": {
     "name": "AsaanPOS",
     "slug": "asaanpos",
-    "version": "1.0.0",
+    "version": "1.3.0",
     "scheme": "asaanpos",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
+    "description": "AsaanPOS - Complete Point of Sale solution for retail businesses. Manage inventory, sales, customers, and generate detailed reports with offline support.",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -16,10 +17,19 @@
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.lakhwera001.asaanpos"
     },
     "android": {
       "package": "com.lakhwera001.asaanpos",
+      "versionCode": 2,
+      "permissions": [
+        "CAMERA",
+        "INTERNET",
+        "READ_EXTERNAL_STORAGE",
+        "USE_BIOMETRIC",
+        "VIBRATE"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -39,12 +49,7 @@
       },
       "eas": {
         "projectId": "8eba7c7d-6d84-47cc-83c2-6d03ee5412bc"
-      },
-      "EXPO_PUBLIC_SUPABASE_URL": "https://qoomcnoslubpqpomzewb.supabase.co",
-      "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFvb21jbm9zbHVicHFwb216ZXdiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM1ODQxNzIsImV4cCI6MjA3OTE2MDE3Mn0.ArgMfh0DbvwkBVtRf3ikJVvRxCyMdfqUQwSh6KARApc",
-      "EXPO_PUBLIC_SUPABASE_COMPANY_KEY": "",
-      "EXPO_PUBLIC_SUPABASE_SNAPSHOT_TABLE": "",
-      "EXPO_PUBLIC_SUPABASE_EXPORT_BUCKET": ""
+      }
     }
   }
 }

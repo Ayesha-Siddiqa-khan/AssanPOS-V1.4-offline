@@ -557,13 +557,13 @@ export default function InventoryScreen() {
 
   // Speech recognition using expo-speech-recognition
   useSpeechRecognitionEvent('start', () => {
-    console.log('[Inventory] Speech recognition started');
+    if (__DEV__) console.log('[Inventory] Speech recognition started');
     setIsVoiceListening(true);
     setIsVoiceSessionActive(true);
   });
 
   useSpeechRecognitionEvent('end', () => {
-    console.log('[Inventory] Speech recognition ended');
+    if (__DEV__) console.log('[Inventory] Speech recognition ended');
     setIsVoiceListening(false);
     setIsVoiceSessionActive(false);
   });

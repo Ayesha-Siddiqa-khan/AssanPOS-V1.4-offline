@@ -460,6 +460,7 @@ export default function ProductEntryModal() {
         </ScrollView>
       </KeyboardAvoidingView>
       <Modal
+        key="scanner-modal"
         transparent
         visible={showScanner}
         animationType="fade"
@@ -516,6 +517,7 @@ export default function ProductEntryModal() {
         </View>
       </Modal>
       <Modal
+        key="manage-suggestions-modal"
         transparent
         visible={manageSuggestionsVisible}
         animationType="fade"
@@ -532,7 +534,7 @@ export default function ProductEntryModal() {
             <Text style={styles.manageSubtitle}>
               {t('Add the product names you use most often for one-tap autofill.')}
             </Text>
-            <ScrollView style={{ maxHeight: 200 }}>
+            <ScrollView style={styles.manageScrollView}>
               {quickProductSuggestions.map((item) => (
                 <View key={item} style={styles.manageListItem}>
                   <View style={styles.manageListLeft}>
@@ -554,6 +556,7 @@ export default function ProductEntryModal() {
         </View>
       </Modal>
       <Modal
+        key="manage-categories-modal"
         transparent
         visible={manageCategoriesVisible}
         animationType="fade"
@@ -570,7 +573,7 @@ export default function ProductEntryModal() {
             <Text style={styles.manageSubtitle}>
               {t('Add categories you use often for quick selection.')}
             </Text>
-            <ScrollView style={{ maxHeight: 200 }}>
+            <ScrollView style={styles.manageScrollView}>
               {quickCategories.map((item) => (
                 <View key={item} style={styles.manageListItem}>
                   <View style={styles.manageListLeft}>
@@ -590,6 +593,7 @@ export default function ProductEntryModal() {
         </View>
       </Modal>
       <Modal
+        key="category-picker-modal"
         transparent
         visible={showCategoryPicker}
         animationType="fade"
@@ -603,7 +607,7 @@ export default function ProductEntryModal() {
                 <Ionicons name="close" size={20} color="#475569" />
               </TouchableOpacity>
             </View>
-            <ScrollView style={{ maxHeight: 250 }}>
+            <ScrollView style={styles.categoryScrollView}>
               {quickCategories.map((item) => (
                 <TouchableOpacity
                   key={item}
@@ -1067,5 +1071,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#111827',
     fontWeight: '600',
+  },
+  manageScrollView: {
+    maxHeight: 200,
+  },
+  categoryScrollView: {
+    maxHeight: 250,
   },
 });

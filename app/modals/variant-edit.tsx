@@ -64,10 +64,14 @@ export default function VariantEditModal() {
       setMaterial(variant.material ?? '');
       setCustomLabel(variant.customAttributeLabel ?? '');
       setCustomValue(variant.customAttributeValue ?? '');
-      setPrice(variant.price != null ? variant.price.toString() : '');
-      setCostPrice(variant.costPrice != null ? variant.costPrice.toString() : '');
-      setStock(variant.stock != null ? variant.stock.toString() : '');
-      setMinStock(variant.minStock != null ? variant.minStock.toString() : '');
+      setPrice(variant.price != null ? (variant.price === 0 ? '' : variant.price.toString()) : '');
+      setCostPrice(
+        variant.costPrice != null ? (variant.costPrice === 0 ? '' : variant.costPrice.toString()) : ''
+      );
+      setStock(variant.stock != null ? (variant.stock === 0 ? '' : variant.stock.toString()) : '');
+      setMinStock(
+        variant.minStock != null ? (variant.minStock === 0 ? '' : variant.minStock.toString()) : ''
+      );
       setUnit(variant.unit ?? '');
       setBarcode(variant.barcode ?? '');
     }
@@ -90,6 +94,11 @@ const validate = () => {
     // Allow saving without strict required fields; clear errors
     setErrors({});
     return true;
+  };
+
+  const parseNumberOrZero = (value: string) => {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : 0;
   };
 
   const handleSave = async () => {
@@ -115,10 +124,10 @@ const validate = () => {
             material: material.trim() || undefined,
             customAttributeLabel: customLabel.trim() || undefined,
             customAttributeValue: customValue.trim() || undefined,
-            price: Number.parseFloat(price),
-            costPrice: Number.parseFloat(costPrice),
-            stock: Number.parseFloat(stock),
-            minStock: Number.parseFloat(minStock),
+            price: parseNumberOrZero(price),
+            costPrice: parseNumberOrZero(costPrice),
+            stock: parseNumberOrZero(stock),
+            minStock: parseNumberOrZero(minStock),
             unit: unit.trim() || undefined,
             barcode: barcode.trim() || undefined,
           };

@@ -133,6 +133,33 @@ export default function ProductSelectionModal() {
   const keyboardBehavior = Platform.OS === 'ios' ? 'padding' : undefined;
   const keyboardOffset = Platform.OS === 'ios' ? 80 : 0;
 
+  // Utility functions (must be defined before useEffect hooks that use them)
+  type CartItem = (typeof cart)[number];
+
+  function getQuantityKey(productId: number | null | undefined, variantId: number | null) {
+    if (Number.isFinite(productId)) {
+      return `${productId}-${variantId ?? 'base'}`;
+    }
+    // Fallback for malformed products to avoid duplicate keys
+    return `p-unknown-${variantId ?? 'base'}`;
+  }
+
+  const sanitizeQuantityInput = (value: string) =>
+    value
+      .replace(/,/g, '.') // Support comma decimal separators
+      .replace(/[^\d.]/g, '')
+      // Keep only the first decimal point
+      .replace(/(\..*)\./g, '$1');
+
+  const parseQuantityInput = (value: string) => {
+    const sanitized = sanitizeQuantityInput(value);
+    const parsed = Number(sanitized);
+    return {
+      sanitized,
+      parsed: Number.isFinite(parsed) && parsed > 0 ? parsed : null,
+    };
+  };
+
   useEffect(() => {
     setDiscountInput(discount === 0 ? '' : discount.toString());
   }, [discount]);
@@ -551,10 +578,6 @@ export default function ProductSelectionModal() {
   );
   const isInstantAddMode = instantAddMode === 'direct';
 
-  function getQuantityKey(productId: number, variantId: number | null) {
-    return `${productId}-${variantId ?? 'base'}`;
-  }
-
   const getResolvedPrice = (product: (typeof products)[number], variant?: any) => {
     const rawPrice = variant?.price ?? product.price ?? 0;
     const parsed = Number(rawPrice);
@@ -915,24 +938,6 @@ export default function ProductSelectionModal() {
     setRecentProducts([]);
     db.setSetting('pos.recentProducts', []).catch(console.warn);
     Toast.show({ type: 'info', text1: t('Cart cleared') });
-  };
-
-  type CartItem = (typeof cart)[number];
-
-  const sanitizeQuantityInput = (value: string) =>
-    value
-      .replace(/,/g, '.') // Support comma decimal separators
-      .replace(/[^\d.]/g, '')
-      // Keep only the first decimal point
-      .replace(/(\..*)\./g, '$1');
-
-  const parseQuantityInput = (value: string) => {
-    const sanitized = sanitizeQuantityInput(value);
-    const parsed = Number(sanitized);
-    return {
-      sanitized,
-      parsed: Number.isFinite(parsed) && parsed > 0 ? parsed : null,
-    };
   };
 
   const handleStepQuantity = (item: CartItem, delta: number) => {
@@ -1572,15 +1577,16 @@ export default function ProductSelectionModal() {
                   </Text>
                 </View>
               ) : (
-                cart.map((item) => {
+                cart.map((item, cartIndex) => {
                   const quantityKey = getQuantityKey(item.productId, item.variantId ?? null);
                   const quantityValue = quantityInputs[quantityKey] ?? String(item.quantity);
                   const displayPrice = Number.isFinite(item.price) ? item.price : 0;
                   const displayQuantity = getInputQuantityOrCart(item);
+                  const cartRowKey = `${item.productId ?? 'p'}-${item.variantId ?? 'base'}-row-${cartIndex}`;
 
                   return (
                     <View
-                      key={`${item.productId}-${item.variantId ?? 'base'}`}
+                      key={cartRowKey}
                       style={styles.cartRow}
                     >
                       <View style={styles.cartInfo}>
@@ -1598,8 +1604,11 @@ export default function ProductSelectionModal() {
                         </View>
                         {item.variantAttributes && item.variantAttributes.length > 0 && (
                           <View style={styles.cartMetaRow}>
-                            {item.variantAttributes.map((attr) => (
-                              <Text key={`${item.productId}-${attr.label}`} style={styles.cartMeta}>
+                            {item.variantAttributes.map((attr, attrIndex) => (
+                              <Text
+                                key={`${item.productId ?? 'p'}-${item.variantId ?? 'base'}-attr-${attrIndex}`}
+                                style={styles.cartMeta}
+                              >
                                 {attr.label}: {attr.value}
                               </Text>
                             ))}
@@ -3739,5 +3748,6 @@ const styles = StyleSheet.create({
     color: '#1f2937',
   },
 });
+
 
 

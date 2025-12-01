@@ -1,4 +1,4 @@
-package com.asaanpos
+package com.lakhwera001.asaanpos
 
 import android.app.Application
 import android.content.res.Configuration

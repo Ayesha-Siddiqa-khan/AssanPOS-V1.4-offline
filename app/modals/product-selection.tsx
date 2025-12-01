@@ -549,6 +549,27 @@ export default function ProductSelectionModal() {
   const getQuantityKey = (productId: number, variantId: number | null) =>
     `${productId}-${variantId ?? 'base'}`;
 
+  const getResolvedPrice = (product: (typeof products)[number], variant?: any) => {
+    const rawPrice = variant?.price ?? product.price ?? 0;
+    const parsed = Number(rawPrice);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const getResolvedCostPrice = (product: (typeof products)[number], variant?: any) => {
+    const rawCostPrice = variant?.costPrice ?? product.costPrice ?? 0;
+    const parsed = Number(rawCostPrice);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const getAvailableStock = (product: (typeof products)[number], variant?: any) => {
+    const stock = variant?.stock ?? product.stock;
+    if (stock === null || stock === undefined) {
+      return null;
+    }
+    const parsed = Number(stock);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
   useEffect(() => {
     navigation.setOptions({
       headerTitle: selectedCustomer ? selectedCustomer.name : t('Walk-in Customer'),
@@ -560,8 +581,28 @@ export default function ProductSelectionModal() {
     product: (typeof products)[number],
     variant?: any
   ) => {
-    const price = variant ? variant.price : product.price ?? 0;
-    const costPrice = variant ? variant.costPrice : product.costPrice ?? 0;
+    const price = getResolvedPrice(product, variant);
+    const costPrice = getResolvedCostPrice(product, variant);
+    const missingPrice = variant?.price == null && product.price == null;
+    const availableStock = getAvailableStock(product, variant);
+
+    if (missingPrice) {
+      Toast.show({
+        type: 'error',
+        text1: t('Cannot add item'),
+        text2: t('Set a price before adding to cart.'),
+      });
+      return;
+    }
+
+    if (availableStock !== null && availableStock <= 0) {
+      Toast.show({
+        type: 'error',
+        text1: t('Out of stock'),
+        text2: t('Update stock before selling this item.'),
+      });
+      return;
+    }
 
     const variantAttributes = variant
       ? ([
@@ -1402,7 +1443,7 @@ export default function ProductSelectionModal() {
                     {!product.hasVariants && (
                       <View style={styles.productPrice}>
                         <Text style={styles.productPriceValue}>
-                          Rs. {(product.price ?? 0).toLocaleString()}
+                          Rs. {getResolvedPrice(product).toLocaleString()}
                         </Text>
                         <Button size="sm" onPress={() => handleAddProduct(product)}>
                           {t('Add Item')}
@@ -1441,7 +1482,7 @@ export default function ProductSelectionModal() {
                             </View>
                             <View style={styles.variantActions}>
                               <Text style={styles.variantPrice}>
-                                Rs. {variant.price.toLocaleString()}
+                                Rs. {getResolvedPrice(product, variant).toLocaleString()}
                               </Text>
                               <Button
                                 size="sm"
@@ -1489,6 +1530,8 @@ export default function ProductSelectionModal() {
                 cart.map((item) => {
                   const quantityKey = getQuantityKey(item.productId, item.variantId ?? null);
                   const quantityValue = quantityInputs[quantityKey] ?? String(item.quantity);
+                  const displayPrice = Number.isFinite(item.price) ? item.price : 0;
+                  const displayQuantity = getInputQuantityOrCart(item);
 
                   return (
                     <View
@@ -1519,11 +1562,11 @@ export default function ProductSelectionModal() {
                         )}
                         <Text style={styles.cartQtyLine}>
                           <Text style={styles.cartQtyPart}>
-                            {getInputQuantityOrCart(item)} x Rs. {item.price.toLocaleString()}
+                            {displayQuantity} x Rs. {displayPrice.toLocaleString()}
                           </Text>
-                          <Text style={styles.cartQtyArrow}>  →  </Text>
+                          <Text style={styles.cartQtyArrow}>  ->  </Text>
                           <Text style={styles.cartQtyTotal}>
-                            Rs. {(item.price * getInputQuantityOrCart(item)).toLocaleString()}
+                            Rs. {(displayPrice * displayQuantity).toLocaleString()}
                           </Text>
                         </Text>
                       </View>
@@ -3651,3 +3694,5 @@ const styles = StyleSheet.create({
     color: '#1f2937',
   },
 });
+
+

@@ -1,4 +1,4 @@
-package com.lakhwera001.asaanpos
+package com.asaanpos
 
 import android.os.Build
 import android.os.Bundle

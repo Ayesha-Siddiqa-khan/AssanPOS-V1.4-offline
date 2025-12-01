@@ -406,6 +406,7 @@ export async function importProductsFromCsv(preselectedUri?: string) {
     const pickerResult = await DocumentPicker.getDocumentAsync({
       copyToCacheDirectory: true,
       type: '*/*',
+      multiple: false,
     });
 
     const pickerCancelled =
@@ -466,14 +467,152 @@ export async function importProductsFromCsv(preselectedUri?: string) {
     throw new Error('E_EMPTY_BACKUP');
   }
 
+  // Get existing products to check for duplicates
+  const existingProducts = await db.getAllProducts();
+  const existingProductMap = new Map(
+    existingProducts.map((p: any) => [p.name.toLowerCase().trim(), p])
+  );
+
+  let addedCount = 0;
+  let updatedCount = 0;
+  let skippedCount = 0;
+
   await db.runInTransaction(async (connection) => {
-    await connection.execAsync('DELETE FROM products');
     for (const product of parsedBackup.products) {
-      await db.addProduct(product, { connection });
+      const normalizedName = product.name.toLowerCase().trim();
+      const existing = existingProductMap.get(normalizedName);
+
+      if (existing) {
+        // Update existing product
+        try {
+          await db.updateProduct(existing.id, product, { connection });
+          updatedCount++;
+        } catch (error) {
+          console.warn(`Failed to update product: ${product.name}`, error);
+          skippedCount++;
+        }
+      } else {
+        // Add new product
+        try {
+          await db.addProduct(product, { connection });
+          addedCount++;
+        } catch (error) {
+          console.warn(`Failed to add product: ${product.name}`, error);
+          skippedCount++;
+        }
+      }
     }
   });
 
-  return { imported: parsedBackup.products.length, fileName: fileLabel };
+  return {
+    imported: addedCount + updatedCount,
+    added: addedCount,
+    updated: updatedCount,
+    skipped: skippedCount,
+    fileName: fileLabel,
+  };
+}
+
+export async function importProductsFromMultipleCsvFiles() {
+  const pickerResult = await DocumentPicker.getDocumentAsync({
+    copyToCacheDirectory: true,
+    type: '*/*',
+    multiple: true,
+  });
+
+  const pickerCancelled =
+    (typeof pickerResult.canceled === 'boolean' && pickerResult.canceled) ||
+    ((pickerResult as any).type === 'cancel');
+
+  if (pickerCancelled) {
+    return null;
+  }
+
+  const assets = pickerResult.assets || [];
+  if (assets.length === 0) {
+    return null;
+  }
+
+  // Get existing products once for all imports
+  const existingProducts = await db.getAllProducts();
+  const existingProductMap = new Map(
+    existingProducts.map((p: any) => [p.name.toLowerCase().trim(), p])
+  );
+
+  let totalAdded = 0;
+  let totalUpdated = 0;
+  let totalSkipped = 0;
+  const processedFiles: string[] = [];
+  const failedFiles: string[] = [];
+
+  for (const asset of assets) {
+    try {
+      let fileContent: string;
+      const uri = asset.uri;
+      
+      if (
+        uri.startsWith('content://') &&
+        StorageAccessFramework?.readAsStringAsync
+      ) {
+        fileContent = await StorageAccessFramework.readAsStringAsync(uri);
+      } else {
+        fileContent = await readAsStringAsync(uri, { encoding: EncodingType.UTF8 });
+      }
+
+      const parsedBackup = parseInventoryBackupContent(fileContent);
+      if (!parsedBackup.products.length) {
+        failedFiles.push(asset.name || 'unknown');
+        continue;
+      }
+
+      // Process products from this file
+      await db.runInTransaction(async (connection) => {
+        for (const product of parsedBackup.products) {
+          const normalizedName = product.name.toLowerCase().trim();
+          const existing = existingProductMap.get(normalizedName);
+
+          if (existing) {
+            try {
+              await db.updateProduct(existing.id, product, { connection });
+              totalUpdated++;
+              // Update the map with new data
+              existingProductMap.set(normalizedName, { ...existing, ...product });
+            } catch (error) {
+              console.warn(`Failed to update product: ${product.name}`, error);
+              totalSkipped++;
+            }
+          } else {
+            try {
+              const newId = await db.addProduct(product, { connection });
+              totalAdded++;
+              // Add to map so subsequent files know about it
+              existingProductMap.set(normalizedName, { ...product, id: newId });
+            } catch (error) {
+              console.warn(`Failed to add product: ${product.name}`, error);
+              totalSkipped++;
+            }
+          }
+        }
+      });
+
+      processedFiles.push(asset.name || 'unknown');
+    } catch (error) {
+      console.warn(`Failed to process file: ${asset.name}`, error);
+      failedFiles.push(asset.name || 'unknown');
+    }
+  }
+
+  return {
+    imported: totalAdded + totalUpdated,
+    added: totalAdded,
+    updated: totalUpdated,
+    skipped: totalSkipped,
+    filesProcessed: processedFiles.length,
+    filesFailed: failedFiles.length,
+    totalFiles: assets.length,
+    processedFiles,
+    failedFiles,
+  };
 }
 
 type ParsedInventoryBackup = {

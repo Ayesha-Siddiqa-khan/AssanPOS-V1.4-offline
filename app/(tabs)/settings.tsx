@@ -33,6 +33,7 @@ import { synchronizeNow } from '../../services/syncService';
 import { spacing, radii, textStyles } from '../../theme/tokens';
 import {
   importProductsFromCsv,
+  importProductsFromMultipleCsvFiles,
   saveSampleInventoryFile,
   exportDataSnapshot,
   exportInventorySnapshotToDevice,
@@ -450,11 +451,20 @@ export default function SettingsScreen() {
       }
       await refreshData();
       const fileLabel = labelOverride ?? result.fileName;
+      
+      // Build detailed import message
+      const details = [];
+      if (result.added > 0) details.push(`${result.added} new`);
+      if (result.updated > 0) details.push(`${result.updated} updated`);
+      if (result.skipped > 0) details.push(`${result.skipped} skipped`);
+      
       Toast.show({
         type: 'success',
         text1: t('Import complete'),
         text2: [
-          t('Imported {count} products').replace('{count}', String(result.imported)),
+          details.length > 0 
+            ? details.join(', ')
+            : t('Imported {count} products').replace('{count}', String(result.imported)),
           fileLabel ? fileLabel : null,
         ]
           .filter(Boolean)
@@ -505,6 +515,62 @@ export default function SettingsScreen() {
     } finally {
       setIsImporting(false);
       setIsImportingJson(false);
+    }
+  };
+
+  const handleImportMultipleFiles = async () => {
+    setIsImporting(true);
+    setIsImportingCsv(true);
+    try {
+      const result = await importProductsFromMultipleCsvFiles();
+      if (!result) {
+        Toast.show({ type: 'info', text1: t('No files selected') });
+        return;
+      }
+      await refreshData();
+      
+      // Build detailed import message
+      const details = [];
+      if (result.added > 0) details.push(`${result.added} new`);
+      if (result.updated > 0) details.push(`${result.updated} updated`);
+      if (result.skipped > 0) details.push(`${result.skipped} skipped`);
+      
+      const fileInfo = result.filesFailed > 0
+        ? `${result.filesProcessed}/${result.totalFiles} files`
+        : `${result.filesProcessed} files`;
+      
+      Toast.show({
+        type: result.filesFailed > 0 ? 'info' : 'success',
+        text1: t('Import complete'),
+        text2: [details.join(', '), fileInfo].filter(Boolean).join(' • '),
+      });
+      
+      if (result.filesFailed > 0 && result.failedFiles.length > 0) {
+        setTimeout(() => {
+          Toast.show({
+            type: 'error',
+            text1: t('Some files failed'),
+            text2: result.failedFiles.slice(0, 2).join(', '),
+          });
+        }, 2500);
+      }
+    } catch (error) {
+      if ((error as Error)?.message === 'E_SAF_PERMISSION') {
+        Toast.show({
+          type: 'info',
+          text1: t('Download permission not granted'),
+          text2: t('Please select a folder to continue'),
+        });
+        return;
+      }
+      Toast.show({
+        type: 'error',
+        text1: t('Import failed'),
+        text2: (error as Error)?.message,
+      });
+    } finally {
+      setIsImporting(false);
+      setIsImportingCsv(false);
     }
   };
 
@@ -1499,6 +1565,21 @@ export default function SettingsScreen() {
           <Text style={styles.maintenanceLabel}>{t('Import Inventory CSV')}</Text>
           <Text style={styles.maintenanceMeta}>
             {isImportingCsv ? t('Importing CSV...') : t('Load items from a CSV file')}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.maintenanceCard, { marginTop: 12 }]}
+          onPress={handleImportMultipleFiles}
+          activeOpacity={0.85}
+          disabled={isImportingCsv}
+        >
+          <View style={[styles.maintenanceIcon, { backgroundColor: '#dff0e8' }]}>
+            <Ionicons name="documents-outline" size={22} color="#059669" />
+          </View>
+          <Text style={styles.maintenanceLabel}>{t('Import Multiple CSV Files')}</Text>
+          <Text style={styles.maintenanceMeta}>
+            {isImportingCsv ? t('Importing files...') : t('Select and import multiple CSV files at once')}
           </Text>
         </TouchableOpacity>
 

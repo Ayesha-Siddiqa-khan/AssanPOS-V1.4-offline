@@ -55,10 +55,34 @@ export function fuzzySearch<T>(
     scoreThreshold = 0.3;
   }
 
-  // Filter by score and return items
-  return results
-    .filter((result) => (result.score ?? 1) <= scoreThreshold)
-    .map((result) => result.item);
+  // Filter by score
+  const filteredResults = results.filter((result) => (result.score ?? 1) <= scoreThreshold);
+
+  // Sort results: prioritize items that start with the query
+  const queryLower = query.toLowerCase().trim();
+  const sortedResults = filteredResults.sort((a, b) => {
+    // Check if any searchable field starts with the query
+    const aStartsWith = keys.some((key) => {
+      const fieldName = typeof key === 'string' ? key : key.name;
+      const fieldValue = fieldName.split('.').reduce((o: any, k) => o?.[k], a.item);
+      return String(fieldValue || '').toLowerCase().startsWith(queryLower);
+    });
+
+    const bStartsWith = keys.some((key) => {
+      const fieldName = typeof key === 'string' ? key : key.name;
+      const fieldValue = fieldName.split('.').reduce((o: any, k) => o?.[k], b.item);
+      return String(fieldValue || '').toLowerCase().startsWith(queryLower);
+    });
+
+    // Items that start with query come first
+    if (aStartsWith && !bStartsWith) return -1;
+    if (!aStartsWith && bStartsWith) return 1;
+
+    // Otherwise sort by score (lower score = better match)
+    return (a.score ?? 1) - (b.score ?? 1);
+  });
+
+  return sortedResults.map((result) => result.item);
 }
 
 /**

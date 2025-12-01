@@ -6,7 +6,7 @@ import { DataProvider } from '../contexts/DataContext';
 import { LanguageProvider } from '../contexts/LanguageContext';
 import { ShopProvider } from '../contexts/ShopContext';
 import { PosProvider } from '../contexts/PosContext';
-import { View, ActivityIndicator, Text, StyleSheet, Animated, TouchableWithoutFeedback, TouchableOpacity } from 'react-native';
+import { View, ActivityIndicator, Text, StyleSheet, Animated, TouchableWithoutFeedback, TouchableOpacity, LogBox } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '../contexts/AuthContext';
 import { KeyLoginScreen } from '../components/auth/KeyLoginScreen';
@@ -15,6 +15,11 @@ import { initCrashLogger } from '../lib/crashLogger';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useSegments } from 'expo-router';
 import { db } from '../lib/database';
+
+// Ignore specific warnings related to Text rendering in LogBox
+LogBox.ignoreLogs([
+  'Text strings must be rendered within a <Text> component',
+]);
 
 export default function RootLayout() {
   useEffect(() => {

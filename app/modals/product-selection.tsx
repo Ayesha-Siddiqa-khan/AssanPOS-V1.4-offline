@@ -263,8 +263,9 @@ export default function ProductSelectionModal() {
       });
 
       // Add variants
-      if (product.hasVariants && product.variants) {
-        product.variants.forEach((variant: any) => {
+      const variants = getVariantArray(product);
+      if (product.hasVariants && variants.length > 0) {
+        variants.forEach((variant: any) => {
           const variantLabel = `${product.name} • ${variant.name}`;
           // Normalize all searchable text
           const searchableText = normalizeSearchText([
@@ -306,13 +307,15 @@ export default function ProductSelectionModal() {
   // Create searchable items with variant information
   const searchableItems = useMemo(() => {
     return products.map((product: any) => {
+      const variants = getVariantArray(product);
       // Concatenate all variant names into a searchable string
-      const variantTexts = (product.variants ?? [])
+      const variantTexts = variants
         .map((v: any) => `${v.name} ${v.size || ''} ${v.color || ''} ${v.design || ''}`.trim())
         .join('   '); // Use triple space as separator
 
       return {
         ...product,
+        variants,
         searchText: normalizeSearchText(`${product.name} ${product.category || ''} ${variantTexts}`),
       };
     });
@@ -337,12 +340,13 @@ export default function ProductSelectionModal() {
 
     // Filter variants within each product to show only matching ones
     return results.map((product: any) => {
-      if (!product.hasVariants || !product.variants) {
-        return product;
+      const variants = getVariantArray(product);
+      if (!product.hasVariants || variants.length === 0) {
+        return { ...product, variants };
       }
 
       // Search within variants - use ONLY variant-specific fields, not product name
-      const variantSearchableItems = (product.variants ?? []).map((v: any) => {
+      const variantSearchableItems = variants.map((v: any) => {
         const variantOnlyText = `${v.name} ${v.size || ''} ${v.color || ''} ${v.design || ''}`;
         return {
           ...v,
@@ -378,14 +382,14 @@ export default function ProductSelectionModal() {
       }
 
       // Show filtered variants only if we found some matches and they're fewer than all variants
-      if (matchingVariants.length > 0 && matchingVariants.length < product.variants.length) {
+      if (matchingVariants.length > 0 && matchingVariants.length < variants.length) {
         return {
           ...product,
           variants: matchingVariants,
         };
       }
 
-      return product;
+      return { ...product, variants };
     });
   }, [searchQuery, searchableItems, products]);
 
@@ -561,6 +565,24 @@ export default function ProductSelectionModal() {
     return Number.isFinite(parsed) ? parsed : 0;
   };
 
+  const getVariantArray = (product: (typeof products)[number]) => {
+    const variants = (product as any)?.variants;
+    if (Array.isArray(variants)) {
+      return variants;
+    }
+    if (typeof variants === 'string') {
+      try {
+        const parsed = JSON.parse(variants);
+        if (Array.isArray(parsed)) {
+          return parsed;
+        }
+      } catch (error) {
+        console.warn('[ProductSelection] Failed to parse variants string', { productId: product.id });
+      }
+    }
+    return [];
+  };
+
   const getAvailableStock = (product: (typeof products)[number], variant?: any) => {
     const stock = variant?.stock ?? product.stock;
     if (stock === null || stock === undefined) {
@@ -581,54 +603,64 @@ export default function ProductSelectionModal() {
     product: (typeof products)[number],
     variant?: any
   ) => {
-    const price = getResolvedPrice(product, variant);
-    const costPrice = getResolvedCostPrice(product, variant);
-    const missingPrice = variant?.price == null && product.price == null;
-    const availableStock = getAvailableStock(product, variant);
+    try {
+      const price = getResolvedPrice(product, variant);
+      const costPrice = getResolvedCostPrice(product, variant);
+      const missingPrice = variant?.price == null && product.price == null;
+      const availableStock = getAvailableStock(product, variant);
 
-    if (missingPrice) {
+      if (missingPrice) {
+        Toast.show({
+          type: 'error',
+          text1: t('Cannot add item'),
+          text2: t('Set a price before adding to cart.'),
+        });
+        return;
+      }
+
+      if (availableStock !== null && availableStock <= 0) {
+        Toast.show({
+          type: 'error',
+          text1: t('Out of stock'),
+          text2: t('Update stock before selling this item.'),
+        });
+        return;
+      }
+
+      const variantAttributes = variant
+        ? ([
+            variant.size ? { label: t('Size'), value: variant.size } : null,
+            variant.color ? { label: t('Color'), value: variant.color } : null,
+            variant.material ? { label: t('Material / Brand'), value: variant.material } : null,
+            variant.customAttributeLabel && variant.customAttributeValue
+              ? { label: variant.customAttributeLabel, value: variant.customAttributeValue }
+              : null,
+          ].filter(
+            (attr): attr is { label: string; value: string } => Boolean(attr)
+          ) as Array<{ label: string; value: string }>)
+        : undefined;
+
+      addItem(
+        {
+          productId: product.id,
+          variantId: variant ? variant.id : null,
+          name: product.name,
+          variantName: variant?.name,
+          variantAttributes,
+          price,
+          costPrice,
+        },
+        1
+      );
+    } catch (error) {
+      console.error('[ProductSelection] Failed to add product', { product, variant, error });
       Toast.show({
         type: 'error',
-        text1: t('Cannot add item'),
-        text2: t('Set a price before adding to cart.'),
+        text1: t('Unable to add item'),
+        text2: t('Please check this product and try again.'),
       });
       return;
     }
-
-    if (availableStock !== null && availableStock <= 0) {
-      Toast.show({
-        type: 'error',
-        text1: t('Out of stock'),
-        text2: t('Update stock before selling this item.'),
-      });
-      return;
-    }
-
-    const variantAttributes = variant
-      ? ([
-          variant.size ? { label: t('Size'), value: variant.size } : null,
-          variant.color ? { label: t('Color'), value: variant.color } : null,
-          variant.material ? { label: t('Material / Brand'), value: variant.material } : null,
-          variant.customAttributeLabel && variant.customAttributeValue
-            ? { label: variant.customAttributeLabel, value: variant.customAttributeValue }
-            : null,
-        ].filter(
-          (attr): attr is { label: string; value: string } => Boolean(attr)
-        ) as Array<{ label: string; value: string }>)
-      : undefined;
-
-    addItem(
-      {
-        productId: product.id,
-        variantId: variant ? variant.id : null,
-        name: product.name,
-        variantName: variant?.name,
-        variantAttributes,
-        price,
-        costPrice,
-      },
-      1
-    );
 
     // Clear search to make room for next search on small screens
     setSearchQuery('');
@@ -664,11 +696,12 @@ export default function ProductSelectionModal() {
     if (!product) {
       return false;
     }
+    const variants = getVariantArray(product);
     let selectedVariant: any | undefined;
     if (variantId != null) {
-      selectedVariant = product.variants?.find((variant: any) => variant.id === variantId);
-    } else if (product.hasVariants && product.variants && product.variants.length > 0) {
-      selectedVariant = product.variants[0];
+      selectedVariant = variants.find((variant: any) => variant.id === variantId);
+    } else if (product.hasVariants && variants.length > 0) {
+      selectedVariant = variants[0];
     }
     handleAddProduct(product, selectedVariant);
     return true;
@@ -741,15 +774,15 @@ export default function ProductSelectionModal() {
       // If not found in products, search in variants
       if (!foundProduct) {
         for (const product of products) {
-          if (product.hasVariants && product.variants) {
-            const variant = product.variants.find(
-              (v: any) => normalizeBarcodeValue(v.barcode) === normalizedScan
-            );
-            if (variant) {
-              foundProduct = product;
-              foundVariant = variant;
-              break;
-            }
+          const variants = getVariantArray(product);
+          if (!product.hasVariants || variants.length === 0) continue;
+          const variant = variants.find(
+            (v: any) => normalizeBarcodeValue(v.barcode) === normalizedScan
+          );
+          if (variant) {
+            foundProduct = product;
+            foundVariant = variant;
+            break;
           }
         }
       }
@@ -850,13 +883,13 @@ export default function ProductSelectionModal() {
 
     if (!foundProduct) {
       for (const product of products) {
-        if (product.hasVariants && product.variants) {
-          const variant = product.variants.find((v: any) => normalizeBarcodeValue(v.barcode) === code);
-          if (variant) {
-            foundProduct = product;
-            foundVariant = variant;
-            break;
-          }
+        const variants = getVariantArray(product);
+        if (!product.hasVariants || variants.length === 0) continue;
+        const variant = variants.find((v: any) => normalizeBarcodeValue(v.barcode) === code);
+        if (variant) {
+          foundProduct = product;
+          foundVariant = variant;
+          break;
         }
       }
     }
@@ -1412,8 +1445,9 @@ export default function ProductSelectionModal() {
                   onPress={() => {
                     const product = products.find((p) => p.id === item.productId);
                     if (product) {
+                      const variants = getVariantArray(product);
                       if (item.variantId) {
-                        const variant = product.variants?.find((v: any) => v.id === item.variantId);
+                        const variant = variants.find((v: any) => v.id === item.variantId);
                         if (variant) {
                           handleAddProduct(product, variant);
                         }
@@ -1452,9 +1486,9 @@ export default function ProductSelectionModal() {
                     )}
                   </View>
 
-                  {product.hasVariants && product.variants && (
+                  {product.hasVariants && getVariantArray(product).length > 0 && (
                     <View style={styles.variantList}>
-                      {product.variants.map((variant: any) => {
+                      {getVariantArray(product).map((variant: any) => {
                         const detailTags = [
                           variant.size ? `${t('Size')}: ${variant.size}` : null,
                           variant.color ? `${t('Color')}: ${variant.color}` : null,

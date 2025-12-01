@@ -177,55 +177,55 @@ const validate = () => {
           <Input
             label={t('Selling Price (Rs.)')}
             value={price}
-            onChangeText={(text) => {
-              setPrice(text);
-              setErrors((prev) => ({ ...prev, price: null }));
-            }}
-            keyboardType="numeric"
-            placeholder="0"
-            error={errors.price ?? undefined}
-            containerStyle={styles.flexItem}
-          />
-          <Input
-            label={t('Cost Price (Rs.)')}
+          onChangeText={(text) => {
+            setPrice(text);
+            setErrors((prev) => ({ ...prev, price: null }));
+          }}
+          keyboardType="numeric"
+          placeholder={t('Enter amount')}
+          error={errors.price ?? undefined}
+          containerStyle={styles.flexItem}
+        />
+        <Input
+          label={t('Cost Price (Rs.)')}
             value={costPrice}
-            onChangeText={(text) => {
-              setCostPrice(text);
-              setErrors((prev) => ({ ...prev, costPrice: null }));
-            }}
-            keyboardType="numeric"
-            placeholder="0"
-            error={errors.costPrice ?? undefined}
-            containerStyle={styles.flexItem}
-          />
-        </View>
+          onChangeText={(text) => {
+            setCostPrice(text);
+            setErrors((prev) => ({ ...prev, costPrice: null }));
+          }}
+          keyboardType="numeric"
+          placeholder={t('Enter amount')}
+          error={errors.costPrice ?? undefined}
+          containerStyle={styles.flexItem}
+        />
+      </View>
 
         <View style={styles.row}>
           <Input
             label={t('Stock')}
             value={stock}
-            onChangeText={(text) => {
-              setStock(text);
-              setErrors((prev) => ({ ...prev, stock: null }));
-            }}
-            keyboardType="numeric"
-            placeholder="0"
-            error={errors.stock ?? undefined}
-            containerStyle={styles.flexItem}
-          />
-          <Input
-            label={t('Min. Stock')}
+          onChangeText={(text) => {
+            setStock(text);
+            setErrors((prev) => ({ ...prev, stock: null }));
+          }}
+          keyboardType="numeric"
+          placeholder={t('Enter quantity')}
+          error={errors.stock ?? undefined}
+          containerStyle={styles.flexItem}
+        />
+        <Input
+          label={t('Min. Stock')}
             value={minStock}
-            onChangeText={(text) => {
-              setMinStock(text);
-              setErrors((prev) => ({ ...prev, minStock: null }));
-            }}
-            keyboardType="numeric"
-            placeholder="0"
-            error={errors.minStock ?? undefined}
-            containerStyle={styles.flexItem}
-          />
-        </View>
+          onChangeText={(text) => {
+            setMinStock(text);
+            setErrors((prev) => ({ ...prev, minStock: null }));
+          }}
+          keyboardType="numeric"
+          placeholder={t('Enter minimum')}
+          error={errors.minStock ?? undefined}
+          containerStyle={styles.flexItem}
+        />
+      </View>
 
         <Input
           label={t('Design / Model (Optional)')}

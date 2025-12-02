@@ -94,15 +94,6 @@ export default function PaymentModal() {
     return () => clearTimeout(timer);
   }, [selectedCustomer]);
 
-  // Suggest available credit automatically without overriding user edits
-  useEffect(() => {
-    if (allowableCredit > 0 && !creditUsedInput) {
-      setCreditUsedInput(allowableCredit.toString());
-    } else if (allowableCredit === 0 && creditUsedInput) {
-      setCreditUsedInput('');
-    }
-  }, [allowableCredit, creditUsedInput]);
-
   const parsedAmountPaid = useMemo(() => {
     const normalized = amountPaidInput.replace(/[^0-9.]/g, '');
     const parsed = parseFloat(normalized);
@@ -200,6 +191,9 @@ export default function PaymentModal() {
           }
         : undefined;
 
+      const hasCreditOnly = creditUsed > 0 && appliedTender <= 0;
+      const normalizedPaymentMethod = hasCreditOnly ? 'Customer Credit' : paymentMethod;
+
       const saleId = await addSale({
         customer: customerPayload,
         cart: cart.map((item) => ({
@@ -221,7 +215,7 @@ export default function PaymentModal() {
         paidAmount: appliedTender,
         changeAmount,
         remainingBalance,
-        paymentMethod,
+        paymentMethod: normalizedPaymentMethod,
         dueDate: normalizedDueDate,
         date,
         time,

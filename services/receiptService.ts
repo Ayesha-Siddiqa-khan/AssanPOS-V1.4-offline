@@ -50,6 +50,8 @@ export type ReceiptPayload = {
   changeAmount?: number;
   amountPaid?: number;
   remainingBalance?: number;
+  creditUsed?: number;
+  amountAfterCredit?: number;
 };
 
 export type StoreProfile = {
@@ -198,6 +200,22 @@ export async function generateReceiptHtml(payload: ReceiptPayload, profile: Stor
                 <td colspan="3">Total</td>
                 <td style="text-align:right;">${formatter.format(payload.total)}</td>
               </tr>
+              ${
+                payload.creditUsed && payload.creditUsed > 0
+                  ? `<tr>
+                      <td colspan="3">Credit Used</td>
+                      <td style="text-align:right;">${formatter.format(payload.creditUsed)}</td>
+                    </tr>`
+                  : ''
+              }
+              ${
+                Number.isFinite(payload?.amountAfterCredit) && (payload?.amountAfterCredit ?? 0) !== payload.total
+                  ? `<tr>
+                      <td colspan="3">After Credit</td>
+                      <td style="text-align:right;">${formatter.format(payload?.amountAfterCredit ?? 0)}</td>
+                    </tr>`
+                  : ''
+              }
               ${
                 Number.isFinite(payload?.amountPaid)
                   ? `<tr>

@@ -617,12 +617,14 @@ export default function ProductSelectionModal() {
     return Number.isFinite(parsed) ? parsed : null;
   };
 
+  const headerTitle = selectedCustomer ? selectedCustomer.name : t('Walk-in Customer');
+
   useEffect(() => {
     navigation.setOptions({
-      headerTitle: selectedCustomer ? selectedCustomer.name : t('Walk-in Customer'),
+      headerTitle,
       headerBackTitle: '',
     });
-  }, [navigation, selectedCustomer, t]);
+  }, [navigation, headerTitle]);
 
   const handleAddProduct = (
     product: (typeof products)[number],

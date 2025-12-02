@@ -401,12 +401,19 @@ export default function CustomerAccountModal() {
 
   const handleShareSale = async (sale: any) => {
     try {
+      const creditUsed = Number(sale.creditUsed ?? 0);
+      const paidAmount = Number(sale.paidAmount ?? 0);
+      const paymentLabel =
+        creditUsed > 0 && paidAmount <= 0 ? t('Customer Credit') : sale.paymentMethod ?? 'N/A';
       const lines: string[] = [];
       lines.push(`${t('Sale')} #${sale.id}`);
       lines.push(`${formatDateTime(sale.date, sale.time, t('at'))}`);
       lines.push(`${t('Total')}: ${formatCurrency(sale.total ?? 0)}`);
       lines.push(`${t('Items')}: ${sale.items ?? 0}`);
-      lines.push(`${t('Payment Method')}: ${sale.paymentMethod ?? 'N/A'}`);
+      lines.push(`${t('Payment Method')}: ${paymentLabel}`);
+      if (creditUsed > 0) {
+        lines.push(`${t('Credit Used')}: ${formatCurrency(creditUsed)}`);
+      }
       if ((sale.remainingBalance ?? 0) > 0) {
         lines.push(`${t('Due')}: ${formatCurrency(sale.remainingBalance)}`);
       }
@@ -442,6 +449,12 @@ export default function CustomerAccountModal() {
       shopProfile?.shopName?.trim() && shopProfile.shopName.trim().length > 0
         ? shopProfile.shopName.trim()
         : t('Your Store');
+    const creditUsed = Number(sale.creditUsed ?? 0);
+    const paidAmount = Number(sale.paidAmount ?? 0);
+    const amountAfterCredit =
+      sale.amountAfterCredit ?? Math.max(Number(sale.total ?? 0) - creditUsed, 0);
+    const paymentLabel =
+      creditUsed > 0 && paidAmount <= 0 ? t('Customer Credit') : sale.paymentMethod ?? t('N/A');
 
     const receipt: ReceiptPayload = {
       id: sale.id,
@@ -449,8 +462,10 @@ export default function CustomerAccountModal() {
       subtotal: Number(sale.subtotal ?? 0),
       tax: Number(sale.tax ?? 0),
       total: Number(sale.total ?? 0),
-      paymentMethod: sale.paymentMethod ?? t('N/A'),
+      paymentMethod: paymentLabel,
       createdAt: `${sale.date} ${formatTimeForDisplay(sale.time)}`,
+      creditUsed,
+      amountAfterCredit,
       lineItems: Array.isArray(sale.cart)
         ? sale.cart.map((item: any) => ({
             name: item.variantName ? `${item.name} - ${item.variantName}` : item.name,
@@ -459,7 +474,7 @@ export default function CustomerAccountModal() {
           }))
         : [],
       changeAmount: sale.changeAmount,
-      amountPaid: sale.paidAmount ?? sale.total ?? 0,
+      amountPaid: paidAmount,
       remainingBalance: Number(sale.remainingBalance ?? 0),
     };
 
@@ -1432,87 +1447,99 @@ export default function CustomerAccountModal() {
             </Text>
           </View>
         ) : (
-          filteredSales.map((sale) => (
-            <View key={sale.id} style={styles.saleCard}>
-              <View style={styles.saleHeader}>
-                <View>
-                  <Text style={styles.saleTitle}>
-                    {sale.customer?.name || t('Walk-in Customer')}
-                  </Text>
-                  <View style={styles.saleMetaRow}>
-                    <Ionicons name="calendar-outline" size={14} color="#64748b" />
-                    <Text style={styles.saleTimestamp}>
-                      {formatDateTime(sale.date, sale.time, t('at'))}
+          filteredSales.map((sale) => {
+            const creditUsed = Number(sale.creditUsed ?? 0);
+            const paidAmount = Number(sale.paidAmount ?? 0);
+            const paymentLabel =
+              creditUsed > 0 && paidAmount <= 0 ? t('Customer Credit') : sale.paymentMethod;
+
+            return (
+              <View key={sale.id} style={styles.saleCard}>
+                <View style={styles.saleHeader}>
+                  <View>
+                    <Text style={styles.saleTitle}>
+                      {sale.customer?.name || t('Walk-in Customer')}
+                    </Text>
+                    <View style={styles.saleMetaRow}>
+                      <Ionicons name="calendar-outline" size={14} color="#64748b" />
+                      <Text style={styles.saleTimestamp}>
+                        {formatDateTime(sale.date, sale.time, t('at'))}
+                      </Text>
+                    </View>
+                  </View>
+                  <Badge
+                    variant={
+                      sale.status === 'Paid'
+                        ? 'success'
+                        : sale.status === 'Due'
+                        ? 'danger'
+                        : sale.status === 'Partially Paid'
+                        ? 'warning'
+                        : 'secondary'
+                    }
+                  >
+                    {sale.status === 'Partially Paid' ? t('Partial') : t(sale.status)}
+                  </Badge>
+                </View>
+
+                <View style={styles.saleSummaryRow}>
+                  <View>
+                    <Text style={styles.saleAmount}>{formatCurrency(sale.total)}</Text>
+                    <Text style={styles.saleItemsMeta}>
+                      {sale.items} {t('items')}
                     </Text>
                   </View>
-                </View>
-                <Badge
-                  variant={
-                    sale.status === 'Paid'
-                      ? 'success'
-                      : sale.status === 'Due'
-                      ? 'danger'
-                      : sale.status === 'Partially Paid'
-                      ? 'warning'
-                      : 'secondary'
-                  }
-                >
-                  {sale.status === 'Partially Paid' ? t('Partial') : t(sale.status)}
-                </Badge>
-              </View>
-
-              <View style={styles.saleSummaryRow}>
-                <View>
-                  <Text style={styles.saleAmount}>{formatCurrency(sale.total)}</Text>
-                  <Text style={styles.saleItemsMeta}>
-                    {sale.items} {t('items')}
-                  </Text>
-                </View>
-                <View style={styles.saleMetaRight}>
-                  <View style={styles.paymentChip}>
-                    <Text style={styles.paymentChipText}>{sale.paymentMethod}</Text>
+                  <View style={styles.saleMetaRight}>
+                    <View style={styles.paymentChip}>
+                      <Text style={styles.paymentChipText}>{paymentLabel}</Text>
+                    </View>
+                    {creditUsed > 0 ? (
+                      <Text style={styles.creditUsedText}>
+                        {t('Credit Used')}: {formatCurrency(creditUsed)}
+                      </Text>
+                    ) : null}
+                    {sale.remainingBalance > 0 ? (
+                      <Text style={styles.saleDue}>
+                        {t('Due')}: {formatCurrency(sale.remainingBalance)}
+                      </Text>
+                    ) : null}
                   </View>
-                  {sale.remainingBalance > 0 ? (
-                    <Text style={styles.saleDue}>
-                      {t('Due')}: {formatCurrency(sale.remainingBalance)}
-                    </Text>
-                  ) : null}
+                </View>
+
+                <View style={styles.saleFooter}>
+                  <TouchableOpacity
+                    style={styles.saleAction}
+                    onPress={() => handleShareSale(sale)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name="share-social-outline"
+                      size={18}
+                      color="#2563eb"
+                    />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.saleAction}
+                    onPress={() => handleShareSalePdf(sale)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name="document-text-outline"
+                      size={18}
+                      color="#2563eb"
+                    />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.saleAction}
+                    onPress={() => handleDeleteSale(sale.id)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="trash-outline" size={18} color="#dc2626" />
+                  </TouchableOpacity>
                 </View>
               </View>
-
-              <View style={styles.saleFooter}>
-                <TouchableOpacity
-                  style={styles.saleAction}
-                  onPress={() => handleShareSale(sale)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name="share-social-outline"
-                    size={18}
-                    color="#2563eb"
-                  />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.saleAction}
-                  onPress={() => handleShareSalePdf(sale)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name="document-text-outline"
-                    size={18}
-                    color="#2563eb"
-                  />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.saleAction}
-                  onPress={() => handleDeleteSale(sale.id)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="trash-outline" size={18} color="#dc2626" />
-                </TouchableOpacity>
-              </View>
-            </View>
-          ))
+            );
+          })
         )}
 
       </ScrollView>
@@ -2139,6 +2166,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#1d4ed8',
+  },
+  creditUsedText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0f172a',
   },
   saleDue: {
     fontSize: 13,

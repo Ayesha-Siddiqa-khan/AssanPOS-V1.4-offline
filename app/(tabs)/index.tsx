@@ -42,6 +42,8 @@ export default function HomeScreen() {
   const { profile: shopProfile } = useShop();
   const formatCurrency = (value: number) => `Rs. ${Number(value || 0).toLocaleString()}`;
 
+  const shopName = shopProfile.shopName?.trim() || 'AsaanPOS';
+
   const [phoneSearch, setPhoneSearch] = useState('');
   const [isAboutVisible, setIsAboutVisible] = useState(false);
 
@@ -90,7 +92,7 @@ export default function HomeScreen() {
       headerTitle: () => (
         <View style={styles.navTitle}>
           <Text style={styles.navTitleText} numberOfLines={1}>
-            {shopProfile.shopName?.trim() || 'AsaanPOS'}
+            {shopName}
           </Text>
           <Text style={styles.navSubtitle} numberOfLines={1}>
             {todayLabel}
@@ -114,7 +116,7 @@ export default function HomeScreen() {
       headerStyle: { backgroundColor: '#e9efff' },
       headerTintColor: '#0f172a',
     });
-  }, [navigation, headerActions, shopProfile, todayLabel, user, t]);
+  }, [navigation, headerActions, shopName, todayLabel]);
 
   const pendingPayments = useMemo(
     () => sales.filter((sale) => sale.status === 'Partially Paid' || sale.status === 'Due'),

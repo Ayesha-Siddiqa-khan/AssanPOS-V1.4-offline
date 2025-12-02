@@ -87,19 +87,23 @@ export default function SaleSuccessModal() {
   }
 
   const customerName = sale.customer?.name ?? t('Walk-in Customer');
-  const paymentMethodLabel = sale.paymentMethod;
+  const paidAmount = sale.paidAmount ?? 0;
+  const creditUsed = sale.creditUsed ?? 0;
+  const amountAfterCredit =
+    sale.amountAfterCredit ?? Math.max((sale.total ?? 0) - creditUsed, 0);
+  const paymentMethodLabel =
+    creditUsed > 0 && paidAmount <= 0 ? t('Customer Credit') : sale.paymentMethod;
   const subtotal = sale.subtotal;
   const tax = sale.tax;
   const total = sale.total;
-  const amountPaid = sale.paidAmount ?? 0;
   const changeDue = sale.changeAmount;
   const normalizedShopName = shopProfile.shopName?.trim();
   const storeName = normalizedShopName && normalizedShopName.length > 0 ? normalizedShopName : t('Your Store');
   const displayAmountPaid =
     Number.isFinite(amountPaidDisplayValue) && amountPaidDisplayValue !== undefined
       ? amountPaidDisplayValue
-      : total ?? amountPaid;
-  const displayAmountReceived = amountReceivedValue ?? amountPaid;
+      : total ?? paidAmount;
+  const displayAmountReceived = amountReceivedValue ?? paidAmount;
   const dueAmount = sale.remainingBalance ?? 0;
   const hasDueAmount = dueAmount > 0.0001;
 
@@ -121,16 +125,30 @@ export default function SaleSuccessModal() {
       total,
       paymentMethod: paymentMethodLabel,
       createdAt: `${sale.date} ${formatTimeForDisplay(sale.time)}`,
+      creditUsed,
+      amountAfterCredit,
       lineItems: sale.cart.map((item) => ({
         name: item.variantName ? `${item.name} - ${item.variantName}` : item.name,
         quantity: item.quantity,
         price: item.price,
       })),
       changeAmount: changeDue,
-      amountPaid,
+      amountPaid: paidAmount,
       remainingBalance: dueAmount,
     }),
-    [sale, customerName, subtotal, tax, total, paymentMethodLabel, changeDue, amountPaid, dueAmount]
+    [
+      sale,
+      customerName,
+      subtotal,
+      tax,
+      total,
+      paymentMethodLabel,
+      changeDue,
+      paidAmount,
+      dueAmount,
+      creditUsed,
+      amountAfterCredit,
+    ]
   );
 
   const storeProfile: StoreProfile = useMemo(
@@ -155,7 +173,8 @@ export default function SaleSuccessModal() {
     `${t('Tax')}: Rs. ${tax.toLocaleString()}`,
     `${t('Total Due')}: Rs. ${total.toLocaleString()}`,
     `${t('Payment Method')}: ${paymentMethodLabel}`,
-    `${t('Amount Paid')}: Rs. ${amountPaid.toLocaleString()}`,
+    creditUsed > 0 ? `${t('Credit Used')}: Rs. ${creditUsed.toLocaleString()}` : null,
+    `${t('Amount Paid')}: Rs. ${paidAmount.toLocaleString()}`,
     amountReceivedValue !== undefined
       ? `${t('Amount Received')}: Rs. ${amountReceivedValue.toLocaleString()}`
       : null,
@@ -329,6 +348,14 @@ export default function SaleSuccessModal() {
             <Text style={styles.label}>{t('Payment Method')}:</Text>
             <Text style={styles.value}>{paymentMethodLabel}</Text>
           </View>
+          {creditUsed > 0 ? (
+            <View style={styles.row}>
+              <Text style={styles.label}>{t('Credit Used')}:</Text>
+              <Text style={styles.value}>
+                Rs. {creditUsed.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              </Text>
+            </View>
+          ) : null}
           <View style={styles.row}>
             <Text style={styles.label}>{t('Amount Paid')}:</Text>
             <Text style={styles.value}>

@@ -226,13 +226,17 @@ export default function SalesScreen() {
                 {groupSales.map((sale) => {
                   const remainingBalance = Number(sale.remainingBalance ?? 0) || 0;
                   const hasDue = remainingBalance > 0;
+                  const creditUsed = Number(sale.creditUsed ?? 0) || 0;
+                  const paidAmount = Number(sale.paidAmount ?? 0) || 0;
                   const statusVariant =
                     sale.status === 'Paid'
                       ? 'success'
                       : sale.status === 'Due'
                       ? 'danger'
                       : 'warning';
-                  const paymentIcon = getPaymentIcon(sale.paymentMethod);
+                  const paymentLabel =
+                    creditUsed > 0 && paidAmount <= 0 ? t('Customer Credit') : sale.paymentMethod;
+                  const paymentIcon = getPaymentIcon(paymentLabel);
                   const statusStyle =
                     sale.status === 'Paid'
                       ? styles.statusBadgePaid
@@ -289,8 +293,13 @@ export default function SalesScreen() {
                             <Text style={styles.saleDetailLabel}>{t('Payment')}</Text>
                             <View style={styles.saleDetailValueRow}>
                               <Ionicons name={paymentIcon} size={14} color="#475569" />
-                              <Text style={styles.saleDetailValue}>{sale.paymentMethod}</Text>
+                              <Text style={styles.saleDetailValue}>{paymentLabel}</Text>
                             </View>
+                            {creditUsed > 0 ? (
+                              <Text style={styles.saleCreditBadge}>
+                                {t('Credit Used')}: {formatCurrency(creditUsed)}
+                              </Text>
+                            ) : null}
                           </View>
                           <View style={styles.saleColumn}>
                             <Text style={styles.saleDetailLabel}>{t('Due')}</Text>
@@ -559,6 +568,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#111827',
+  },
+  saleCreditBadge: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0f172a',
   },
   saleDetailValueRow: {
     flexDirection: 'row',

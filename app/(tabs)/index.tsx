@@ -124,7 +124,7 @@ export default function HomeScreen() {
   );
 
   const pendingBalanceTotal = useMemo(
-    () => pendingPayments.reduce((sum, sale) => sum + sale.remainingBalance, 0),
+    () => pendingPayments.reduce((sum, sale) => sum + (sale.remainingBalance || 0), 0),
     [pendingPayments]
   );
 
@@ -258,7 +258,7 @@ export default function HomeScreen() {
           backdrop: '#fff7ed',
           meta:
             pendingPayments.length > 0
-              ? `${pendingPayments.length} ${t('open')}`
+              ? `${String(pendingPayments.length)} ${t('open')}`
               : t('All clear'),
           onPress: () => router.push('/pending-payments'),
         },
@@ -348,7 +348,7 @@ export default function HomeScreen() {
                 onPress={() => router.push('/pending-payments')}
               >
                 <View style={styles.heroStatTop}>
-                  <Text style={styles.heroStatValue}>{pendingPayments.length}</Text>
+                  <Text style={styles.heroStatValue}>{String(pendingPayments.length)}</Text>
                   <Ionicons name="chevron-forward" size={14} color="#6b7280" />
                 </View>
                 <Text style={styles.heroStatLabel}>{t('Pending payments')}</Text>
@@ -382,7 +382,7 @@ export default function HomeScreen() {
                 <Text style={styles.lowStockAlertTitle}>{t('Low Stock Alerts')}</Text>
               </View>
               <View style={styles.lowStockAlertBadge}>
-                <Text style={styles.lowStockAlertBadgeText}>{lowStockItems.length}</Text>
+                <Text style={styles.lowStockAlertBadgeText}>{String(lowStockItems.length)}</Text>
               </View>
             </View>
             {lowStockItems.slice(0, 3).map((item) => (
@@ -390,7 +390,7 @@ export default function HomeScreen() {
                 <View>
                   <Text style={styles.lowStockAlertName}>{item.name}</Text>
                   <Text style={styles.lowStockAlertMeta}>
-                    {t('Stock')}: {item.stock} / {item.target}
+                    {t('Stock')}: {String(item.stock)} / {String(item.target)}
                   </Text>
                 </View>
                 <Text style={styles.lowStockAlertAction}>{t('Reorder')}</Text>
@@ -475,10 +475,10 @@ export default function HomeScreen() {
                     <Badge variant={statusConfig.variant}>{statusConfig.label}</Badge>
                   </View>
                   <View style={styles.saleFooter}>
-                    <Text style={styles.saleAmount}>Rs. {sale.total.toLocaleString()}</Text>
+                    <Text style={styles.saleAmount}>Rs. {(sale.total || 0).toLocaleString()}</Text>
                     <Text style={styles.saleItems}>
-                      {sale.items}{' '}
-                      {sale.items === 1 ? t('item') : t('items')}
+                      {String(sale.items || 0)}{' '}
+                      {(sale.items || 0) === 1 ? t('item') : t('items')}
                     </Text>
                   </View>
                 </View>

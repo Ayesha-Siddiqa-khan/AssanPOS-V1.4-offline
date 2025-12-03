@@ -159,11 +159,11 @@ export default function CustomersScreen() {
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
             <Text style={styles.statLabel}>{t('Customers')}</Text>
-            <Text style={styles.statValue}>{summary.totalCustomers}</Text>
+            <Text style={styles.statValue}>{String(summary.totalCustomers)}</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statLabel}>{t('With dues')}</Text>
-            <Text style={styles.statValue}>{summary.customersWithDues}</Text>
+            <Text style={styles.statValue}>{String(summary.customersWithDues)}</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statLabel}>{t('Total due')}</Text>
@@ -174,7 +174,7 @@ export default function CustomersScreen() {
         </View>
 
         <Text style={styles.sectionTitle}>
-          {t('Customer list')} · {filteredCustomers.length}
+          {t('Customer list')} · {String(filteredCustomers.length)}
         </Text>
 
         {filteredCustomers.length === 0 ? (

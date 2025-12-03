@@ -458,9 +458,9 @@ export default function SettingsScreen() {
       
       // Build detailed import message
       const details = [];
-      if (result.added > 0) details.push(`${result.added} new`);
-      if (result.updated > 0) details.push(`${result.updated} updated`);
-      if (result.skipped > 0) details.push(`${result.skipped} skipped`);
+      if (result.added > 0) details.push(`${String(result.added)} new`);
+      if (result.updated > 0) details.push(`${String(result.updated)} updated`);
+      if (result.skipped > 0) details.push(`${String(result.skipped)} skipped`);
       
       Toast.show({
         type: 'success',
@@ -535,13 +535,14 @@ export default function SettingsScreen() {
       
       // Build detailed import message
       const details = [];
-      if (result.added > 0) details.push(`${result.added} new`);
-      if (result.updated > 0) details.push(`${result.updated} updated`);
-      if (result.skipped > 0) details.push(`${result.skipped} skipped`);
+      if (result.added > 0) details.push(`${String(result.added)} new`);
+      if (result.updated > 0) details.push(`${String(result.updated)} updated`);
+      if (result.skipped > 0) details.push(`${String(result.skipped)} skipped`);
       
       const fileInfo = result.filesFailed > 0
-        ? `${result.filesProcessed}/${result.totalFiles} files`
-        : `${result.filesProcessed} files`;
+        ? `${String(result.filesProcessed)}/${String(result.totalFiles)} files`
+        : `${String(result.filesProcessed)} files`;
+    
       
       Toast.show({
         type: result.filesFailed > 0 ? 'info' : 'success',
@@ -1788,7 +1789,7 @@ export default function SettingsScreen() {
                     {t('Recent backup')}: {describeTimestamp(backupSummary.last)}
                   </Text>
                   <Text style={styles.systemSubtitle}>
-                    {t('Total stored')}: {backupSummary.count}
+                    {t('Total stored')}: {String(backupSummary.count)}
                   </Text>
                 </View>
               </View>

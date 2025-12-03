@@ -58,6 +58,15 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({
         return;
       }
 
+      // Validate price is a valid number
+      const safePrice = typeof item.price === 'number' && Number.isFinite(item.price) ? item.price : 0;
+      const safeCostPrice = typeof item.costPrice === 'number' && Number.isFinite(item.costPrice) ? item.costPrice : 0;
+      
+      if (safePrice <= 0) {
+        console.warn('[PosContext] Cannot add item with invalid price:', item.name);
+        return;
+      }
+
       setCart((prev) => {
         const variantKey = item.variantId ?? null;
         const existingIndex = prev.findIndex(
@@ -71,12 +80,20 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({
           updated[existingIndex] = {
             ...updated[existingIndex],
             quantity: updated[existingIndex].quantity + quantity,
+            price: safePrice,
+            costPrice: safeCostPrice,
             variantAttributes: item.variantAttributes ?? updated[existingIndex].variantAttributes,
           };
           return updated;
         }
 
-        return [...prev, { ...item, variantId: variantKey, quantity }];
+        return [...prev, { 
+          ...item, 
+          variantId: variantKey, 
+          quantity,
+          price: safePrice,
+          costPrice: safeCostPrice,
+        }];
       });
     },
     []

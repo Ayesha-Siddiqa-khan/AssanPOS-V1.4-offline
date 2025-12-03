@@ -532,7 +532,12 @@ export default function ProductSelectionModal() {
     () =>
       cart.reduce((sum, item) => {
         const qty = getInputQuantityOrCart(item);
-        return sum + (item.price || 0) * qty;
+        const price = item.price || 0;
+        // Ensure both are valid numbers to prevent NaN
+        if (!Number.isFinite(qty) || !Number.isFinite(price)) {
+          return sum;
+        }
+        return sum + price * qty;
       }, 0),
     [cart, quantityInputs]
   );
@@ -609,12 +614,20 @@ export default function ProductSelectionModal() {
   }
 
   const getAvailableStock = (product: (typeof products)[number], variant?: any) => {
-    const stock = variant?.stock ?? product.stock;
-    if (stock === null || stock === undefined) {
-      return null;
+    try {
+      const stock = variant?.stock ?? product.stock;
+      if (stock === null || stock === undefined) {
+        return null; // Stock tracking not enabled
+      }
+      const parsed = Number(stock);
+      if (!Number.isFinite(parsed)) {
+        return null; // Invalid stock value, treat as unlimited
+      }
+      return parsed;
+    } catch (error) {
+      console.warn('[ProductSelection] Error getting stock:', error);
+      return null; // On error, allow sale (treat as unlimited stock)
     }
-    const parsed = Number(stock);
-    return Number.isFinite(parsed) ? parsed : null;
   };
 
   const headerTitle = selectedCustomer ? selectedCustomer.name : t('Walk-in Customer');
@@ -636,16 +649,18 @@ export default function ProductSelectionModal() {
       const missingPrice = variant?.price == null && product.price == null;
       const availableStock = getAvailableStock(product, variant);
 
-      if (missingPrice) {
+      // Check if price is missing or zero
+      if (missingPrice || price <= 0) {
         Toast.show({
           type: 'error',
           text1: t('Cannot add item'),
-          text2: t('Set a price before adding to cart.'),
+          text2: t('Please set a sale price for this product first.'),
         });
         return;
       }
 
-      if (availableStock !== null && availableStock <= 0) {
+      // Check stock availability (only if stock tracking is enabled)
+      if (availableStock !== null && !Number.isNaN(availableStock) && availableStock <= 0) {
         Toast.show({
           type: 'error',
           text1: t('Out of stock'),
@@ -1622,7 +1637,7 @@ export default function ProductSelectionModal() {
                           </Text>
                           <Text style={styles.cartQtyArrow}>  ->  </Text>
                           <Text style={styles.cartQtyTotal}>
-                            Rs. {(displayPrice * displayQuantity).toLocaleString()}
+                            Rs. {((displayPrice || 0) * displayQuantity).toLocaleString()}
                           </Text>
                         </Text>
                       </View>

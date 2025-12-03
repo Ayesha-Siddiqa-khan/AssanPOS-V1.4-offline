@@ -1178,7 +1178,7 @@ export default function InventoryScreen() {
               <Ionicons name="cube-outline" size={16} color="#0f172a" />
               <Text style={styles.statLabel}>{t('Total Products')}</Text>
             </View>
-            <Text style={styles.statValue}>{totalProducts}</Text>
+            <Text style={styles.statValue}>{String(totalProducts)}</Text>
           </View>
           <View style={[styles.statCard, styles.valueCard]}>
             <View style={styles.statTop}>
@@ -1194,7 +1194,7 @@ export default function InventoryScreen() {
               <Ionicons name="warning-outline" size={16} color="#b91c1c" />
               <Text style={styles.statLabel}>{t('Low Stock')}</Text>
             </View>
-            <Text style={[styles.statValue, styles.statValueWarning]}>{lowStockCount}</Text>
+            <Text style={[styles.statValue, styles.statValueWarning]}>{String(lowStockCount)}</Text>
           </View>
         </View>
 
@@ -1235,7 +1235,7 @@ export default function InventoryScreen() {
                       </View>
                     </View>
                     <View style={styles.variantBadge}>
-                      <Text style={styles.variantBadgeValue}>{variantCount}</Text>
+                      <Text style={styles.variantBadgeValue}>{String(variantCount)}</Text>
                       <Text style={styles.variantBadgeLabel}>
                         {variantCount === 1 ? t('variant') : t('variants')}
                       </Text>
@@ -1306,7 +1306,7 @@ export default function InventoryScreen() {
                                 <View style={styles.variantStatColumn}>
                                   <View style={styles.stockRow}>
                                     <Text style={styles.variantStatValue}>
-                                      {t('Stock')}: {stockCount}
+                                      {t('Stock')}: {String(stockCount)}
                                     </Text>
                                     {stockCount === 0 ? (
                                       <View style={styles.stockPillDanger}>
@@ -1391,7 +1391,7 @@ export default function InventoryScreen() {
                       <View style={styles.variantStatsCompact}>
                         <View style={styles.variantStatColumn}>
                           <Text style={styles.variantStatValue}>
-                            {t('Stock')}: {baseStock}
+                            {t('Stock')}: {String(baseStock)}
                           </Text>
                           <Text style={styles.variantStatValue}>
                             {t('Cost')}: {currencyFormatter.format(product.costPrice ?? 0)}

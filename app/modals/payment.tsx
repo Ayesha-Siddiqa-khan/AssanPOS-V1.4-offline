@@ -279,7 +279,7 @@ export default function PaymentModal() {
                 <Text style={styles.cartLine}>
                   {item.quantity} × Rs. {item.price.toLocaleString()} →{' '}
                   <Text style={styles.cartLineTotal}>
-                    Rs. {(item.price * item.quantity).toLocaleString()}
+                    Rs. {((item.price || 0) * item.quantity).toLocaleString()}
                   </Text>
                 </Text>
               </View>

@@ -173,7 +173,7 @@ export default function SalesScreen() {
                       isActive && styles.filterCountTextActive,
                     ]}
                   >
-                    {statusCounts[option.key]}
+                    {String(statusCounts[option.key])}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -188,7 +188,7 @@ export default function SalesScreen() {
             <View style={styles.statIcon}>
               <Ionicons name="receipt-outline" size={20} color="#1d4ed8" />
             </View>
-            <Text style={styles.statValue}>{filteredSales.length}</Text>
+            <Text style={styles.statValue}>{String(filteredSales.length)}</Text>
           </View>
           <Text style={styles.statLabel}>{t('Total Sales')}</Text>
         </Card>
@@ -281,7 +281,7 @@ export default function SalesScreen() {
                         <View style={styles.saleDetailsRow}>
                           <View style={styles.saleColumn}>
                             <Text style={styles.saleDetailLabel}>{t('Items')}</Text>
-                            <Text style={styles.saleDetailValue}>{sale.items}</Text>
+                            <Text style={styles.saleDetailValue}>{String(sale.items || 0)}</Text>
                           </View>
                           <View style={styles.saleColumn}>
                             <Text style={styles.saleDetailLabel}>{t('Total')}</Text>

@@ -51,8 +51,8 @@ export default function ReportsScreen() {
     const filteredSales = sales.filter((sale) => sale.date >= startStr);
     const filteredExpenditures = expenditures.filter((exp) => exp.date >= startStr);
 
-    const revenue = filteredSales.reduce((sum, sale) => sum + sale.total, 0);
-    const expenses = filteredExpenditures.reduce((sum, exp) => sum + exp.amount, 0);
+    const revenue = filteredSales.reduce((sum, sale) => sum + (sale.total || 0), 0);
+    const expenses = filteredExpenditures.reduce((sum, exp) => sum + (exp.amount || 0), 0);
     const cogs = filteredSales.reduce((sum, sale) => {
       const cartCOGS = sale.cart.reduce((cartSum: number, item: any) => {
         const costPrice = item.costPrice || 0;
@@ -64,7 +64,7 @@ export default function ReportsScreen() {
 
     const paymentBreakdown = filteredSales.reduce(
       (acc: Record<string, number>, sale) => {
-        acc[sale.paymentMethod] = (acc[sale.paymentMethod] || 0) + sale.total;
+        acc[sale.paymentMethod] = (acc[sale.paymentMethod] || 0) + (sale.total || 0);
         return acc;
       },
       {}
@@ -93,7 +93,7 @@ export default function ReportsScreen() {
           };
         }
         acc[key].units += item.quantity;
-        acc[key].revenue += item.price * item.quantity;
+        acc[key].revenue += (item.price || 0) * item.quantity;
       });
       return acc;
     }, {});
@@ -492,7 +492,7 @@ export default function ReportsScreen() {
               </View>
               <View style={styles.metricContent}>
                 <Text style={styles.metricTitle}>{t('Number of Sales')}</Text>
-                <Text style={styles.metricValue}>{numberOfSales}</Text>
+                <Text style={styles.metricValue}>{String(numberOfSales)}</Text>
               </View>
             </Card>
 
@@ -534,7 +534,7 @@ export default function ReportsScreen() {
                   style={styles.productRow}
                 >
                   <View style={styles.productRank}>
-                    <Text style={styles.productRankText}>#{index + 1}</Text>
+                    <Text style={styles.productRankText}>#{String(index + 1)}</Text>
                   </View>
                   <View style={styles.productDetails}>
                     <Text style={styles.productName}>
@@ -542,7 +542,7 @@ export default function ReportsScreen() {
                       {item.variantName ? ` ${'\u2022'} ${item.variantName}` : ''}
                     </Text>
                     <Text style={styles.productMeta}>
-                      {item.units} {t('items')} {'\u2022'} Rs. {item.revenue.toLocaleString()}
+                      {String(item.units)} {t('items')} {'\u2022'} Rs. {item.revenue.toLocaleString()}
                     </Text>
                   </View>
                 </View>

@@ -92,11 +92,11 @@ export default function SaleSuccessModal() {
   const amountAfterCredit =
     sale.amountAfterCredit ?? Math.max((sale.total ?? 0) - creditUsed, 0);
   const paymentMethodLabel =
-    creditUsed > 0 && paidAmount <= 0 ? t('Customer Credit') : sale.paymentMethod;
-  const subtotal = sale.subtotal;
-  const tax = sale.tax;
-  const total = sale.total;
-  const changeDue = sale.changeAmount;
+    creditUsed > 0 && paidAmount <= 0 ? t('Customer Credit') : (sale.paymentMethod ?? 'Cash');
+  const subtotal = sale.subtotal ?? 0;
+  const tax = sale.tax ?? 0;
+  const total = sale.total ?? 0;
+  const changeDue = sale.changeAmount ?? 0;
   const normalizedShopName = shopProfile.shopName?.trim();
   const storeName = normalizedShopName && normalizedShopName.length > 0 ? normalizedShopName : t('Your Store');
   const displayAmountPaid =
@@ -165,26 +165,28 @@ export default function SaleSuccessModal() {
     `${t('Customer')}: ${customerName}`,
     '',
     `${t('Items')}:`,
-    ...renderedItems.map(
-      (item) => `• ${item.label} — ${item.quantity} × Rs. ${item.price.toLocaleString()}`
-    ),
+    ...renderedItems.map((item) => {
+      const displayPrice = item.price || 0;
+      const displayQty = item.quantity || 0;
+      return `• ${item.label} — ${displayQty} × Rs. ${displayPrice.toLocaleString()}`;
+    }),
     '',
-    `${t('Subtotal')}: Rs. ${subtotal.toLocaleString()}`,
-    `${t('Tax')}: Rs. ${tax.toLocaleString()}`,
-    `${t('Total Due')}: Rs. ${total.toLocaleString()}`,
-    `${t('Payment Method')}: ${paymentMethodLabel}`,
+    `${t('Subtotal')}: Rs. ${(subtotal || 0).toLocaleString()}`,
+    `${t('Tax')}: Rs. ${(tax || 0).toLocaleString()}`,
+    `${t('Total Due')}: Rs. ${(total || 0).toLocaleString()}`,
+    `${t('Payment Method')}: ${paymentMethodLabel || 'N/A'}`,
     creditUsed > 0 ? `${t('Credit Used')}: Rs. ${creditUsed.toLocaleString()}` : null,
-    `${t('Amount Paid')}: Rs. ${paidAmount.toLocaleString()}`,
-    amountReceivedValue !== undefined
+    `${t('Amount Paid')}: Rs. ${(paidAmount || 0).toLocaleString()}`,
+    amountReceivedValue !== undefined && amountReceivedValue !== null
       ? `${t('Amount Received')}: Rs. ${amountReceivedValue.toLocaleString()}`
       : null,
-    hasDueAmount ? `${t('Remaining Balance')}: Rs. ${dueAmount.toLocaleString()}` : null,
-    `${t('Return Change')}: Rs. ${changeDue.toLocaleString(undefined, {
+    hasDueAmount && dueAmount ? `${t('Remaining Balance')}: Rs. ${dueAmount.toLocaleString()}` : null,
+    `${t('Return Change')}: Rs. ${(changeDue || 0).toLocaleString(undefined, {
       maximumFractionDigits: 2,
     })}`,
     '',
     t('Thank you for your business!'),
-  ].filter(Boolean);
+  ].filter((line): line is string => typeof line === 'string');
 
   const shareMessage = shareLines.join('\n');
 
@@ -318,11 +320,11 @@ export default function SaleSuccessModal() {
               <View>
                 <Text style={styles.itemLabel}>{item.label}</Text>
                 <Text style={styles.itemMeta}>
-                  {item.quantity} × Rs. {item.price.toLocaleString()}
+                  {item.quantity} × Rs. {(item.price || 0).toLocaleString()}
                 </Text>
               </View>
               <Text style={styles.itemTotal}>
-                Rs. {(item.price * item.quantity).toLocaleString()}
+                Rs. {((item.price || 0) * item.quantity).toLocaleString()}
               </Text>
             </View>
           ))}
@@ -331,22 +333,22 @@ export default function SaleSuccessModal() {
 
           <View style={styles.row}>
             <Text style={styles.label}>{t('Subtotal')}:</Text>
-            <Text style={styles.value}>Rs. {subtotal.toLocaleString()}</Text>
+            <Text style={styles.value}>Rs. {(subtotal || 0).toLocaleString()}</Text>
           </View>
           <View style={styles.row}>
             <Text style={styles.label}>{t('Tax')}:</Text>
-            <Text style={styles.value}>Rs. {tax.toLocaleString()}</Text>
+            <Text style={styles.value}>Rs. {(tax || 0).toLocaleString()}</Text>
           </View>
           <View style={styles.row}>
             <Text style={[styles.label, styles.totalLabel]}>{t('Total')}:</Text>
-            <Text style={[styles.value, styles.totalLabel]}>Rs. {total.toLocaleString()}</Text>
+            <Text style={[styles.value, styles.totalLabel]}>Rs. {(total || 0).toLocaleString()}</Text>
           </View>
 
           <View style={styles.separator} />
 
           <View style={styles.row}>
             <Text style={styles.label}>{t('Payment Method')}:</Text>
-            <Text style={styles.value}>{paymentMethodLabel}</Text>
+            <Text style={styles.value}>{paymentMethodLabel || 'N/A'}</Text>
           </View>
           {creditUsed > 0 ? (
             <View style={styles.row}>
@@ -377,7 +379,7 @@ export default function SaleSuccessModal() {
           <View style={styles.row}>
             <Text style={styles.label}>{t('Return Change')}:</Text>
             <Text style={styles.value}>
-              Rs. {changeDue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              Rs. {(changeDue || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
             </Text>
           </View>
 

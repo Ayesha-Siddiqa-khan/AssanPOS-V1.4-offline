@@ -192,7 +192,7 @@ export default function ProductSelectionModal() {
   useEffect(() => {
     setQuickPaymentEnabled(true);
     setShowRandomPurchase(true);
-  }, [setQuickPaymentEnabled]);
+  }, []);
 
   useEffect(() => {
     setQuantityInputs((prev) => {
@@ -206,21 +206,8 @@ export default function ProductSelectionModal() {
     });
   }, [cart, activeQuantityKey]);
 
-  // Keep cart quantities in sync even if the user doesn't blur the input
-  useEffect(() => {
-    cart.forEach((item) => {
-      const key = getQuantityKey(item.productId, item.variantId ?? null);
-      const rawValue = quantityInputs[key];
-      if (rawValue == null) return;
-
-      const { parsed } = parseQuantityInput(rawValue);
-      if (!parsed) return;
-
-      if (parsed !== item.quantity) {
-        updateQuantity(item.productId, item.variantId ?? null, parsed);
-      }
-    });
-  }, [cart, quantityInputs, updateQuantity]);
+  // Removed problematic auto-sync that caused infinite loop
+  // The quantity sync happens on blur/submit instead
 
   useEffect(() => {
     // Removed initial auto-focus to prevent keyboard popping up by default

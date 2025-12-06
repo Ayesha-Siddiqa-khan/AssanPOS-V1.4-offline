@@ -1,9 +1,21 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Animated, Pressable, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  Animated,
+  Pressable,
+  Alert,
+  Modal,
+  ActivityIndicator,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Toast from 'react-native-toast-message';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useData } from '../../contexts/DataContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { usePos } from '../../contexts/PosContext';
@@ -11,10 +23,20 @@ import { useShop } from '../../contexts/ShopContext';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
-import { formatDateForDisplay, formatTimeForDisplay } from '../../lib/date';
+import { formatDateForDisplay, formatTimeForDisplay, formatDateForStorage } from '../../lib/date';
 import { spacing, radii, textStyles } from '../../theme/tokens';
 import { shareTextViaWhatsApp } from '../../lib/share';
-import { createReceiptPdf, generateReceiptHtml, shareReceipt } from '../../services/receiptService';
+import {
+  createReceiptPdf,
+  generateReceiptHtml,
+  openPrintPreview,
+  shareReceipt,
+  scanForPrinters,
+  printReceiptViaBluetooth,
+  type PrinterDevice,
+} from '../../services/receiptService';
+
+const PRINTER_STORAGE_KEY = 'pos.selectedPrinter';
 
 type StatusFilterKey = 'all' | 'paid' | 'due' | 'partial';
 const formatCurrency = (value: number | null | undefined) => {
@@ -29,6 +51,20 @@ const formatCurrency = (value: number | null | undefined) => {
   }
 };
 
+// Cache today's key - recalculate only when date changes
+let cachedTodayKey: string | null = null;
+let cachedDate: string | null = null;
+
+const getTodayKey = () => {
+  const now = new Date();
+  const dateStr = now.toDateString();
+  if (cachedDate !== dateStr) {
+    cachedDate = dateStr;
+    cachedTodayKey = formatDateForStorage(now);
+  }
+  return cachedTodayKey!;
+};
+
 export default function SalesScreen() {
   const { sales: rawSales, deleteSale } = useData();
   const { t } = useLanguage();
@@ -36,10 +72,16 @@ export default function SalesScreen() {
   const { resetSale } = usePos();
   const { profile: shopProfile } = useShop();
   const sales = rawSales ?? [];
+  const todayKey = getTodayKey();
 
   const [statusFilter, setStatusFilter] = useState<StatusFilterKey>('all');
   const listOpacity = useRef(new Animated.Value(1)).current;
   const listTranslate = useRef(new Animated.Value(0)).current;
+  const [selectedPrinter, setSelectedPrinter] = useState<PrinterDevice | null>(null);
+  const [printerModalVisible, setPrinterModalVisible] = useState(false);
+  const [availablePrinters, setAvailablePrinters] = useState<PrinterDevice[]>([]);
+  const [isScanningPrinters, setIsScanningPrinters] = useState(false);
+  const [expandedSales, setExpandedSales] = useState<Set<number>>(new Set());
 
   const statusCounts = useMemo<Record<StatusFilterKey, number>>(
     () =>
@@ -61,17 +103,36 @@ export default function SalesScreen() {
   );
 
   const filteredSales = useMemo(() => {
+    const base = sales.filter((sale) => {
+      if (!sale.date) return false;
+      const saleDate = sale.date instanceof Date ? sale.date : new Date(sale.date);
+      if (Number.isNaN(saleDate.getTime())) return false;
+      const saleKey = formatDateForStorage(saleDate);
+      return saleKey === todayKey;
+    });
     if (statusFilter === 'all') {
-      return sales;
+      return base;
     }
     if (statusFilter === 'paid') {
-      return sales.filter((sale) => sale.status === 'Paid');
+      return base.filter((sale) => sale.status === 'Paid');
     }
     if (statusFilter === 'due') {
-      return sales.filter((sale) => sale.status === 'Due');
+      return base.filter((sale) => sale.status === 'Due');
     }
-    return sales.filter((sale) => sale.status === 'Partially Paid');
+    return base.filter((sale) => sale.status === 'Partially Paid');
   }, [sales, statusFilter]);
+
+  const toggleSaleItems = (id: number) => {
+    setExpandedSales((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
 
   const totalSales = filteredSales.reduce(
     (sum, sale) => sum + (Number(sale.total) || 0),
@@ -119,6 +180,90 @@ export default function SalesScreen() {
     if (lowered.includes('card') || lowered.includes('credit')) return 'card-outline';
     return 'wallet-outline';
   };
+
+  const buildPrintableText = (sale: any) => {
+    const creditUsed = Number(sale.creditUsed ?? 0);
+    const paidAmount = Number(sale.paidAmount ?? 0);
+    const paymentLabel =
+      creditUsed > 0 && paidAmount <= 0 ? t('Customer Credit') : sale.paymentMethod ?? 'N/A';
+    const lines: string[] = [];
+    lines.push(`${t('Sale')} #${sale.id}`);
+    lines.push(`${formatDateForDisplay(sale.date)} ${sale.time ? formatTimeForDisplay(sale.time) : ''}`);
+    lines.push(`${t('Total')}: ${formatCurrency(sale.total ?? 0)}`);
+    lines.push(`${t('Items')}: ${sale.items ?? 0}`);
+    lines.push(`${t('Payment Method')}: ${paymentLabel}`);
+    if (creditUsed > 0) {
+      lines.push(`${t('Credit Used')}: ${formatCurrency(creditUsed)}`);
+    }
+    if ((sale.remainingBalance ?? 0) > 0) {
+      lines.push(`${t('Due')}: ${formatCurrency(sale.remainingBalance)}`);
+    }
+    if (Array.isArray(sale.cart) && sale.cart.length > 0) {
+      lines.push('');
+      lines.push(`${t('Items')}:`);
+      sale.cart.slice(0, 5).forEach((item: any, index: number) => {
+        const itemPrice = Number(item.price ?? 0);
+        const itemQty = item.quantity ?? 0;
+        lines.push(
+          `${index + 1}. ${item.name ?? 'Unknown'}${item.variantName ? ` - ${item.variantName}` : ''} x${itemQty} @ Rs. ${itemPrice.toLocaleString()}`
+        );
+      });
+      if (sale.cart.length > 5) {
+        lines.push(`+ ${sale.cart.length - 5} ${t('items')}`);
+      }
+    }
+    return lines.join('\n');
+  };
+
+  const openPrinterSelector = async () => {
+    setPrinterModalVisible(true);
+    setIsScanningPrinters(true);
+    setAvailablePrinters([]);
+    try {
+      const printers = await scanForPrinters();
+      setAvailablePrinters(printers);
+      if (!printers.length) {
+        Toast.show({ type: 'info', text1: t('No Bluetooth printers found') });
+      }
+    } catch (error: any) {
+      const message = error?.message || String(error);
+      const isExpoGo = message.toLowerCase().includes('expo go');
+      const text1 = isExpoGo
+        ? t('Bluetooth is not available in Expo Go')
+        : t('Unable to scan printers');
+      const text2 = isExpoGo ? t('Use a development build to print via Bluetooth.') : undefined;
+      Toast.show({ type: 'info', text1, text2 });
+      setPrinterModalVisible(false);
+    } finally {
+      setIsScanningPrinters(false);
+    }
+  };
+
+  const handleSelectPrinter = async (printer: PrinterDevice) => {
+    try {
+      setSelectedPrinter(printer);
+      await AsyncStorage.setItem(PRINTER_STORAGE_KEY, JSON.stringify(printer));
+      Toast.show({ type: 'success', text1: t('Printer selected') });
+    } catch (error) {
+      console.error('Failed to save printer', error);
+    } finally {
+      setPrinterModalVisible(false);
+    }
+  };
+
+  useEffect(() => {
+    const loadPrinter = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(PRINTER_STORAGE_KEY);
+        if (stored) {
+          setSelectedPrinter(JSON.parse(stored));
+        }
+      } catch (error) {
+        console.warn('Failed to load printer', error);
+      }
+    };
+    loadPrinter();
+  }, []);
 
   const storeName =
     shopProfile.shopName?.trim()?.length ? shopProfile.shopName.trim() : t('Your Store');
@@ -185,6 +330,35 @@ export default function SalesScreen() {
     }
   };
 
+  const printSale = async (sale: any) => {
+    if (selectedPrinter) {
+      try {
+        const text = buildPrintableText(sale);
+        await printReceiptViaBluetooth(selectedPrinter.id, text);
+        Toast.show({ type: 'success', text1: t('Receipt sent to printer') });
+        return;
+      } catch (error) {
+        console.error('Failed to print via printer', error);
+        Toast.show({ type: 'error', text1: t('Unable to print receipt') });
+      }
+    } else {
+      await openPrinterSelector();
+      return;
+    }
+
+    try {
+      const payload = buildReceiptPayload(sale);
+      const html = await generateReceiptHtml(payload, {
+        name: storeName,
+        thankYouMessage: t('Thank you for your business!'),
+      });
+      await openPrintPreview(html);
+    } catch (error) {
+      console.error('Failed to print receipt', error);
+      Toast.show({ type: 'error', text1: t('Unable to print receipt') });
+    }
+  };
+
   const confirmDeleteSale = (saleId: number) => {
     Alert.alert(
       t('Delete sale?'),
@@ -215,6 +389,14 @@ export default function SalesScreen() {
           <Text style={styles.screenTitle}>{t('Sales')}</Text>
           <Text style={styles.screenSubtitle}>{t('Sales History')}</Text>
         </View>
+        <TouchableOpacity
+          style={styles.historyIconButton}
+          onPress={() => router.push('/history')}
+          accessibilityLabel={t('History')}
+          hitSlop={8}
+        >
+          <Ionicons name="time-outline" size={20} color="#2563eb" />
+        </TouchableOpacity>
         <Button
           style={styles.newSaleButton}
           onPress={() => {
@@ -314,7 +496,9 @@ export default function SalesScreen() {
           ) : (
             groupedSales.map(([groupLabel, groupSales]) => (
               <View key={groupLabel} style={styles.groupSection}>
-                <Text style={styles.groupLabel}>{groupLabel}</Text>
+                <View style={styles.groupHeader}>
+                  <Text style={styles.groupLabel}>{groupLabel}</Text>
+                </View>
                 {groupSales.map((sale) => {
                   const remainingBalance = Number(sale.remainingBalance ?? 0) || 0;
                   const hasDue = remainingBalance > 0;
@@ -381,12 +565,12 @@ export default function SalesScreen() {
                           </View>
                         </View>
                         <View style={styles.saleDetailsRow}>
-                          <View style={styles.saleColumn}>
-                            <Text style={styles.saleDetailLabel}>{t('Payment')}</Text>
-                            <View style={styles.saleDetailValueRow}>
-                              <Ionicons name={paymentIcon} size={14} color="#475569" />
-                              <Text style={styles.saleDetailValue}>{paymentLabel}</Text>
-                            </View>
+                        <View style={styles.saleColumn}>
+                          <Text style={styles.saleDetailLabel}>{t('Payment')}</Text>
+                          <View style={styles.saleDetailValueRow}>
+                            <Ionicons name={paymentIcon} size={14} color="#475569" />
+                            <Text style={styles.saleDetailValue}>{paymentLabel}</Text>
+                        </View>
                             {creditUsed > 0 ? (
                               <Text style={styles.saleCreditBadge}>
                                 {t('Credit Used')}: {formatCurrency(creditUsed)}
@@ -405,6 +589,50 @@ export default function SalesScreen() {
                             </Text>
                           </View>
                         </View>
+                        {Array.isArray(sale.cart) && sale.cart.length > 0 ? (
+                          <>
+                            <TouchableOpacity
+                              style={styles.itemToggle}
+                              onPress={() => toggleSaleItems(Number(sale.id))}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={styles.itemToggleText}>
+                                {expandedSales.has(Number(sale.id)) ? t('Hide items') : t('View items')}
+                              </Text>
+                              <Ionicons
+                                name={expandedSales.has(Number(sale.id)) ? 'chevron-up' : 'chevron-down'}
+                                size={16}
+                                color="#2563eb"
+                              />
+                            </TouchableOpacity>
+                            {expandedSales.has(Number(sale.id)) ? (
+                              <View style={styles.itemsPreview}>
+                                <View style={styles.itemsHeader}>
+                                  <Text style={[styles.itemCellName, styles.itemHeaderText]}>{t('Item')}</Text>
+                                  <Text style={[styles.itemCellQty, styles.itemHeaderText]}>{t('Qty')}</Text>
+                                  <Text style={[styles.itemCellPrice, styles.itemHeaderText]}>{t('Price')}</Text>
+                                  <Text style={[styles.itemCellTotal, styles.itemHeaderText]}>{t('Total')}</Text>
+                                </View>
+                                {sale.cart.map((item: any, idx: number) => {
+                                  const qty = item.quantity ?? 0;
+                                  const price = Number(item.price ?? 0);
+                                  const lineTotal = price * qty;
+                                  return (
+                                    <View key={`${sale.id}-item-${idx}`} style={styles.itemRow}>
+                                      <Text style={styles.itemCellName} numberOfLines={1}>
+                                        {item.name}
+                                        {item.variantName ? ` - ${item.variantName}` : ''}
+                                      </Text>
+                                      <Text style={styles.itemCellQty}>{qty}</Text>
+                                      <Text style={styles.itemCellPrice}>{formatCurrency(price)}</Text>
+                                      <Text style={styles.itemCellTotal}>{formatCurrency(lineTotal)}</Text>
+                                    </View>
+                                  );
+                                })}
+                              </View>
+                            ) : null}
+                          </>
+                        ) : null}
 
                         <View style={styles.saleActions}>
                           <TouchableOpacity
@@ -413,6 +641,13 @@ export default function SalesScreen() {
                             accessibilityLabel={t('Share')}
                           >
                             <Ionicons name="share-social-outline" size={18} color="#2563eb" />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.actionButton, styles.actionNeutral]}
+                            onPress={() => printSale(sale)}
+                            accessibilityLabel={t('Print receipt')}
+                          >
+                            <Ionicons name="print-outline" size={18} color="#2563eb" />
                           </TouchableOpacity>
                           <TouchableOpacity
                             style={[styles.actionButton, styles.actionNeutral]}
@@ -440,6 +675,65 @@ export default function SalesScreen() {
 
         <View style={{ height: 20 }} />
       </ScrollView>
+      <Modal
+        visible={printerModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPrinterModalVisible(false)}
+      >
+        <View style={styles.printerOverlay}>
+          <View style={styles.printerCard}>
+            <View style={styles.printerHeader}>
+              <Text style={styles.printerTitle}>{t('Select a printer')}</Text>
+              <TouchableOpacity
+                onPress={() => setPrinterModalVisible(false)}
+                hitSlop={8}
+                style={styles.printerCloseButton}
+              >
+                <Ionicons name="close" size={20} color="#111827" />
+              </TouchableOpacity>
+            </View>
+
+            {isScanningPrinters ? (
+              <View style={styles.printerMessageContainer}>
+                <ActivityIndicator size="large" color="#2563eb" />
+                <Text style={styles.printerMessage}>{t('Scanning printers...')}</Text>
+              </View>
+            ) : availablePrinters.length ? (
+              <View style={styles.printerList}>
+                {availablePrinters.map((printer) => (
+                  <TouchableOpacity
+                    key={printer.id}
+                    style={styles.printerItem}
+                    onPress={() => handleSelectPrinter(printer)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.printerName}>{printer.name ?? t('Unnamed printer')}</Text>
+                    {selectedPrinter?.id === printer.id ? (
+                      <Ionicons name="checkmark-circle" size={18} color="#16a34a" />
+                    ) : null}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : (
+              <Text style={styles.printerEmpty}>{t('No printers discovered')}</Text>
+            )}
+
+            <View style={styles.printerActionsRow}>
+              <Button variant="outline" onPress={openPrinterSelector} style={styles.printerActionButton}>
+                {t('Rescan')}
+              </Button>
+              <Button
+                variant="outline"
+                onPress={() => setPrinterModalVisible(false)}
+                style={styles.printerActionButton}
+              >
+                {t('Close')}
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -456,6 +750,14 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xl,
     paddingBottom: spacing.md,
     gap: spacing.md,
+  },
+  historyIconButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#e0ecff',
   },
   screenTitle: {
     ...textStyles.screenTitle,
@@ -595,16 +897,22 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg + 2,
     paddingTop: spacing.sm,
   },
-  groupLabel: {
-    alignSelf: 'stretch',
+  groupSection: {
+    gap: spacing.sm,
+  },
+  groupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    borderRadius: radii.sm,
-    backgroundColor: '#e7eaee',
+    marginBottom: spacing.sm,
+  },
+  groupLabel: {
+    fontSize: 13,
+    fontWeight: '700',
     color: '#374151',
-    fontWeight: '600',
-    fontSize: 12,
-    marginBottom: 12,
+    flex: 1,
   },
   saleCardWrapper: {
     marginBottom: spacing.md,
@@ -712,6 +1020,70 @@ const styles = StyleSheet.create({
   saleDueClear: {
     color: '#6b7280',
   },
+  itemsPreview: {
+    marginTop: spacing.sm,
+    gap: 4,
+  },
+  itemText: {
+    fontSize: 12,
+    color: '#475569',
+  },
+  moreItemsText: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontStyle: 'italic',
+  },
+  itemToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingTop: spacing.xs,
+  },
+  itemToggleText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#2563eb',
+  },
+  itemsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  itemHeaderText: {
+    fontWeight: '700',
+    color: '#111827',
+  },
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  itemCellName: {
+    flex: 0.5,
+    fontSize: 12,
+    color: '#111827',
+  },
+  itemCellQty: {
+    flex: 0.15,
+    fontSize: 12,
+    color: '#111827',
+    textAlign: 'right',
+  },
+  itemCellPrice: {
+    flex: 0.175,
+    fontSize: 12,
+    color: '#111827',
+    textAlign: 'right',
+  },
+  itemCellTotal: {
+    flex: 0.175,
+    fontSize: 12,
+    color: '#111827',
+    textAlign: 'right',
+    fontWeight: '700',
+  },
   saleActions: {
     flexDirection: 'row',
     gap: spacing.sm,
@@ -731,6 +1103,75 @@ const styles = StyleSheet.create({
   },
   actionDanger: {
     backgroundColor: '#ffe4e6',
+  },
+  printerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.lg,
+  },
+  printerCard: {
+    width: '92%',
+    maxWidth: 420,
+    backgroundColor: '#ffffff',
+    borderRadius: radii.lg,
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  printerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  printerTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  printerList: {
+    maxHeight: 260,
+    gap: spacing.sm,
+  },
+  printerItem: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: radii.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#f8fafc',
+  },
+  printerName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#0f172a',
+  },
+  printerActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.sm,
+  },
+  printerActionButton: {
+    flex: 1,
+  },
+  printerCloseButton: {
+    alignSelf: 'flex-end',
+  },
+  printerEmpty: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+  },
+  printerMessageContainer: {
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  printerMessage: {
+    fontSize: 14,
+    color: '#475569',
   },
   emptyCard: {
     padding: spacing.xxl,

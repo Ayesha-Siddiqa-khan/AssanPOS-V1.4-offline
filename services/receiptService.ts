@@ -182,6 +182,7 @@ export async function generateReceiptHtml(payload: ReceiptPayload, profile: Stor
           .total-row td { font-weight: 700; padding-top: 2px; }
           .totals { margin-top: 6px; }
           .footer { margin-top: 18px; text-align: center; font-size: 12px; color: #6b7280; }
+          tfoot td { font-weight: 700; padding-top: 6px; border-top: 1px solid #e5e7eb; }
         </style>
       </head>
       <body>
@@ -203,14 +204,16 @@ export async function generateReceiptHtml(payload: ReceiptPayload, profile: Stor
             </tr>
           </thead>
           <tbody>${rows}</tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3" class="bold">Subtotal</td>
+              <td class="right bold">${fmt(payload.subtotal)}</td>
+            </tr>
+          </tfoot>
         </table>
 
         <table class="totals">
           <tbody>
-            <tr class="total-row">
-              <td style="width: 70%;">Subtotal</td>
-              <td class="right" style="width: 30%;">${fmt(payload.subtotal)}</td>
-            </tr>
             <tr class="total-row">
               <td>Tax</td>
               <td class="right">${fmt(payload.tax)}</td>

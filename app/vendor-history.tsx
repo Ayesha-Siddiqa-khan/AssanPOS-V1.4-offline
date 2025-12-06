@@ -11,6 +11,7 @@ import { shareTextViaWhatsApp } from '../lib/share';
 import {
   createReceiptPdf,
   generateReceiptHtml,
+  openPrintPreview,
   shareReceipt,
   type ReceiptPayload,
   type StoreProfile,
@@ -94,7 +95,25 @@ export default function VendorPurchaseHistoryScreen() {
 
   const handleShareSummaryPdf = async () => {
     try {
-      const safeHistory = historyList.slice();
+      const html = buildSummaryHtml();
+      const pdf = await createReceiptPdf(html);
+      await shareReceipt(pdf.uri);
+    } catch (error) {
+      console.error('Failed to share vendor summary PDF', error);
+    }
+  };
+
+  const handlePrintSummary = async () => {
+    try {
+      const html = buildSummaryHtml();
+      await openPrintPreview(html);
+    } catch (error) {
+      console.error('Failed to print vendor summary', error);
+    }
+  };
+
+  const buildSummaryHtml = () => {
+    const safeHistory = historyList.slice();
 
       const historyRows = safeHistory
         .map((purchase) => {
@@ -167,7 +186,7 @@ export default function VendorPurchaseHistoryScreen() {
         { debit: 0, credit: 0 }
       );
 
-      const html = `
+      return `
         <html>
           <head>
             <style>
@@ -235,11 +254,6 @@ export default function VendorPurchaseHistoryScreen() {
           </body>
         </html>
       `;
-      const pdf = await createReceiptPdf(html);
-      await shareReceipt(pdf.uri);
-    } catch (error) {
-      console.error('Failed to share vendor summary PDF', error);
-    }
   };
 
   const buildReceiptPayload = (purchase: any): { receipt: ReceiptPayload; store: StoreProfile } => {
@@ -323,6 +337,16 @@ export default function VendorPurchaseHistoryScreen() {
     }
   };
 
+  const handlePrintPurchase = async (purchase: any) => {
+    try {
+      const { receipt, store } = buildReceiptPayload(purchase);
+      const html = await generateReceiptHtml(receipt, store);
+      await openPrintPreview(html);
+    } catch (error) {
+      console.error('Failed to print purchase', error);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <View style={styles.header}>
@@ -362,6 +386,13 @@ export default function VendorPurchaseHistoryScreen() {
                 activeOpacity={0.8}
               >
                 <Ionicons name="document-text-outline" size={18} color="#1f2937" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.summaryAction}
+                onPress={handlePrintSummary}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="print-outline" size={18} color="#1f2937" />
               </TouchableOpacity>
             </View>
           </View>
@@ -490,6 +521,13 @@ export default function VendorPurchaseHistoryScreen() {
                   activeOpacity={0.7}
                 >
                   <Ionicons name="document-text-outline" size={18} color="#1f2937" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.purchaseAction}
+                  onPress={() => handlePrintPurchase(purchase)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="print-outline" size={18} color="#1f2937" />
                 </TouchableOpacity>
               </View>
             </View>
@@ -633,6 +671,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    justifyContent: 'flex-end',
   },
   purchaseAction: {
     width: 34,

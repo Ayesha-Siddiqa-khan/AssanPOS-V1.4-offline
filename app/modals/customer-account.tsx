@@ -29,6 +29,7 @@ import { shareTextViaWhatsApp } from '../../lib/share';
 import {
   createReceiptPdf,
   generateReceiptHtml,
+  openPrintPreview,
   shareReceipt,
   type ReceiptPayload,
   type StoreProfile,
@@ -494,6 +495,98 @@ export default function CustomerAccountModal() {
     } catch (error) {
       console.error('Failed to share sale PDF', error);
       Toast.show({ type: 'error', text1: t('Unable to share PDF receipt') });
+    }
+  };
+
+  const handlePrintSale = async (sale: any) => {
+    try {
+      const { receipt, store } = buildReceiptPayload(sale);
+      const html = await generateReceiptHtml(receipt, store);
+      await openPrintPreview(html);
+    } catch (error) {
+      console.error('Failed to print sale receipt', error);
+      Toast.show({ type: 'error', text1: t('Unable to print receipt') });
+    }
+  };
+
+  const handlePrintCreditEntry = async (entry: any) => {
+    try {
+      const lines = [
+        `<h3 style="margin:0 0 6px 0;">${t('Credit History')}</h3>`,
+        `<div>${t('Type')}: ${entry.type}</div>`,
+        `<div>${t('Amount')}: ${formatCurrency(entry.amount || 0)}</div>`,
+        `<div>${t('Date')}: ${formatDateTime(entry.date, entry.time, t('at'))}</div>`,
+        entry.description ? `<div>${t('Description')}: ${entry.description}</div>` : '',
+        entry.linkedSaleId ? `<div>${t('Sale')} #${entry.linkedSaleId}</div>` : '',
+      ].filter(Boolean);
+
+      const html = `
+        <html>
+          <head>
+            <style>
+              body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif; padding: 16px; color: #111827; }
+            </style>
+          </head>
+          <body>
+            ${lines.join('')}
+          </body>
+        </html>
+      `;
+      await openPrintPreview(html);
+    } catch (error) {
+      console.error('Failed to print credit entry', error);
+      Toast.show({ type: 'error', text1: t('Unable to print receipt') });
+    }
+  };
+
+  const handlePrintCreditHistory = async () => {
+    try {
+      const rows = creditHistory
+        .map(
+          (entry) => `
+            <tr>
+              <td>${entry.type}</td>
+              <td>${formatCurrency(entry.amount || 0)}</td>
+              <td>${formatDateTime(entry.date, entry.time, t('at'))}</td>
+              <td>${entry.linkedSaleId ? `#${entry.linkedSaleId}` : '-'}</td>
+            </tr>
+          `
+        )
+        .join('');
+
+      const html = `
+        <html>
+          <head>
+            <style>
+              body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif; padding: 16px; color: #111827; }
+              table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+              th, td { padding: 6px 4px; border-bottom: 1px solid #e5e7eb; text-align: left; font-size: 13px; }
+              th { font-weight: 700; }
+            </style>
+          </head>
+          <body>
+            <h3 style="margin:0 0 6px 0;">${t('Credit History')}</h3>
+            <div>${t('Customer')}: ${customer?.name ?? t('Unknown')}</div>
+            <div>${t('Phone')}: ${customer?.phone ?? '-'}</div>
+            <table>
+              <thead>
+                <tr>
+                  <th>${t('Type')}</th>
+                  <th>${t('Amount')}</th>
+                  <th>${t('Date')}</th>
+                  <th>${t('Sale')}</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </body>
+        </html>
+      `;
+
+      await openPrintPreview(html);
+    } catch (error) {
+      console.error('Failed to print credit history', error);
+      Toast.show({ type: 'error', text1: t('Unable to print receipt') });
     }
   };
 
@@ -1248,6 +1341,13 @@ export default function CustomerAccountModal() {
                   </View>
                 </Button>
                 <TouchableOpacity
+                  style={styles.shareAllIconButton}
+                  onPress={handlePrintCreditHistory}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="print-outline" size={18} color="#1f2937" />
+                </TouchableOpacity>
+                <TouchableOpacity
                   style={styles.closeHistoryButton}
                   onPress={() => setShowHistoryPanel(false)}
                   activeOpacity={0.7}
@@ -1352,6 +1452,13 @@ export default function CustomerAccountModal() {
                             size={18}
                             color="#16a34a"
                           />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.creditHistoryAction, styles.creditHistoryActionPrint]}
+                          onPress={() => handlePrintCreditEntry(entry)}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="print-outline" size={18} color="#2563eb" />
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={[styles.creditHistoryAction, styles.creditHistoryActionEdit]}
@@ -1517,6 +1624,13 @@ export default function CustomerAccountModal() {
                       size={18}
                       color="#2563eb"
                     />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.saleAction}
+                    onPress={() => handlePrintSale(sale)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="print-outline" size={18} color="#2563eb" />
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.saleAction}
@@ -1994,6 +2108,9 @@ const styles = StyleSheet.create({
   creditHistoryActionShare: {
     borderColor: '#bbf7d0',
   },
+  creditHistoryActionPrint: {
+    borderColor: '#bfdbfe',
+  },
   creditHistoryActionEdit: {
     borderColor: '#bfdbfe',
   },
@@ -2069,6 +2186,16 @@ const styles = StyleSheet.create({
   shareAllButton: {
     borderRadius: 10,
     height: 42,
+  },
+  shareAllIconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   shareAllContent: {
     flexDirection: 'row',

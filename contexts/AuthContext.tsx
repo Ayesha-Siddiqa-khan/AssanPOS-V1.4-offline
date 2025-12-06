@@ -57,7 +57,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               `Your account has been deactivated. Please contact support at ${SUPPORT_PHONE} for assistance.`,
               [{ text: 'OK' }]
             );
-          } else {
+          } else if (JSON.stringify(updatedUser) !== JSON.stringify(user)) {
+            // Only update if user data actually changed
             setUser(updatedUser);
           }
         } catch (error) {
@@ -92,7 +93,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             `Your account has been deactivated. Please contact support at ${SUPPORT_PHONE} for assistance.`,
             [{ text: 'OK' }]
           );
-        } else {
+        } else if (JSON.stringify(updatedUser) !== JSON.stringify(user)) {
+          // Only update if user data actually changed
           setUser(updatedUser);
         }
       } catch (error) {
@@ -141,7 +143,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 [{ text: 'OK' }]
               );
               setUser(null);
-            } else {
+            } else if (JSON.stringify(updatedUser) !== JSON.stringify(sessionUser)) {
+              // Only update if user data actually changed from cached session
               setUser(updatedUser);
             }
           } catch (error: any) {

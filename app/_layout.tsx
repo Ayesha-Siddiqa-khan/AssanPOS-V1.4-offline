@@ -104,14 +104,13 @@ const AppNavigation = () => {
 
     if (justLoggedIn && !welcomeSeen) {
       lastWelcomeUserId.current = userId;
-      setShowWelcome(true);
-      Animated.timing(welcomeAnim, {
-        toValue: 1,
-        duration: 220,
-        useNativeDriver: true,
-      }).start();
-    } else {
-      setShowWelcome(false);
+      // Temporarily disabled to prevent infinite loop
+      // setShowWelcome(true);
+      // Animated.timing(welcomeAnim, {
+      //   toValue: 1,
+      //   duration: 220,
+      //   useNativeDriver: true,
+      // }).start();
     }
 
     return () => {
@@ -119,7 +118,7 @@ const AppNavigation = () => {
         clearTimeout(hideTimer.current);
       }
     };
-  }, [user, welcomeAnim, hideWelcome, welcomeSeen]);
+  }, [user, welcomeSeen]);
 
   const handleDeveloperPress = () => {
     hideWelcome();

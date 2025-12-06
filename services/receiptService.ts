@@ -141,6 +141,8 @@ export async function generateReceiptHtml(payload: ReceiptPayload, profile: Stor
     currency: 'PKR',
   });
 
+  const fmt = (value: number | undefined | null) => formatter.format(Number(value) || 0);
+
   const rows = payload.lineItems
     .map((item) => {
       const lineTotal = (item.price || 0) * (item.quantity || 0);
@@ -148,24 +150,38 @@ export async function generateReceiptHtml(payload: ReceiptPayload, profile: Stor
         <tr>
           <td>${item.name}</td>
           <td style="text-align:right;">${item.quantity}</td>
-          <td style="text-align:right;">${formatter.format(item.price)}</td>
-          <td style="text-align:right;">${formatter.format(lineTotal)}</td>
+          <td style="text-align:right;">${fmt(item.price)}</td>
+          <td style="text-align:right;">${fmt(lineTotal)}</td>
         </tr>
       `;
     })
     .join('');
 
+  const hasCreditUsed = (payload.creditUsed ?? 0) > 0;
+  const hasAfterCredit =
+    Number.isFinite(payload?.amountAfterCredit) &&
+    (payload?.amountAfterCredit ?? 0) !== (payload?.total ?? 0);
+  const hasPaid = Number.isFinite(payload?.amountPaid);
+  const hasBalance =
+    Number.isFinite(payload?.remainingBalance) && (payload?.remainingBalance ?? 0) !== 0;
+  const hasChange = Number.isFinite(payload?.changeAmount) && (payload?.changeAmount ?? 0) !== 0;
+
   return `
     <html>
       <head>
         <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 16px; }
-          h1, h2, h3 { margin: 4px 0; text-align: center; }
-          table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-          th, td { padding: 4px 0; }
-          tfoot td { font-weight: bold; }
-          .meta { text-align: center; font-size: 12px; color: #6b7280; margin-top: 4px; }
+          body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif; padding: 16px 18px; color: #111827; }
+          h2 { margin: 4px 0; text-align: center; }
+          table { width: 100%; border-collapse: collapse; margin-top: 14px; }
+          th { padding: 4px 0; font-size: 13px; text-align: left; }
+          td { padding: 3px 0; font-size: 13px; }
+          .right { text-align: right; }
+          .bold { font-weight: 700; }
+          .meta { text-align: center; font-size: 11px; color: #6b7280; margin-top: 2px; }
           .divider { border-top: 1px dashed #d1d5db; margin: 12px 0; }
+          .total-row td { font-weight: 700; padding-top: 2px; }
+          .totals { margin-top: 6px; }
+          .footer { margin-top: 18px; text-align: center; font-size: 12px; color: #6b7280; }
         </style>
       </head>
       <body>
@@ -177,78 +193,78 @@ export async function generateReceiptHtml(payload: ReceiptPayload, profile: Stor
         <div>Receipt #: ${payload.id}</div>
         <div>Date: ${payload.createdAt}</div>
         ${payload.customerName ? `<div>Customer: ${payload.customerName}</div>` : ''}
-          <table>
-            <thead>
-              <tr>
-                <th style="text-align:left;">Item</th>
-                <th style="text-align:right;">Qty</th>
-                <th style="text-align:right;">Price</th>
-                <th style="text-align:right;">Total</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-            <tfoot>
-              <tr>
-                <td colspan="3">Subtotal</td>
-                <td style="text-align:right;">${formatter.format(payload.subtotal)}</td>
-              </tr>
-              <tr>
-                <td colspan="3">Tax</td>
-                <td style="text-align:right;">${formatter.format(payload.tax)}</td>
-              </tr>
-              <tr>
-                <td colspan="3">Total</td>
-                <td style="text-align:right;">${formatter.format(payload.total)}</td>
-              </tr>
-              ${
-                payload.creditUsed && payload.creditUsed > 0
-                  ? `<tr>
-                      <td colspan="3">Credit Used</td>
-                      <td style="text-align:right;">${formatter.format(payload.creditUsed)}</td>
-                    </tr>`
-                  : ''
-              }
-              ${
-                Number.isFinite(payload?.amountAfterCredit) && (payload?.amountAfterCredit ?? 0) !== payload.total
-                  ? `<tr>
-                      <td colspan="3">After Credit</td>
-                      <td style="text-align:right;">${formatter.format(payload?.amountAfterCredit ?? 0)}</td>
-                    </tr>`
-                  : ''
-              }
-              ${
-                Number.isFinite(payload?.amountPaid)
-                  ? `<tr>
-                      <td colspan="3">Paid</td>
-                      <td style="text-align:right;">${formatter.format(payload.amountPaid ?? 0)}</td>
-                    </tr>`
-                  : ''
-              }
-              ${
-                Number.isFinite(payload?.remainingBalance) && (payload?.remainingBalance ?? 0) !== 0
-                  ? `<tr>
-                      <td colspan="3">Balance</td>
-                      <td style="text-align:right;">${formatter.format(payload?.remainingBalance ?? 0)}</td>
-                    </tr>`
-                  : ''
-              }
-              ${
-                payload.changeAmount
-                  ? `<tr>
-                      <td colspan="3">Change</td>
-                      <td style="text-align:right;">${formatter.format(payload.changeAmount)}</td>
-                    </tr>`
-                  : ''
-              }
-            </tfoot>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 58%;">Item</th>
+              <th class="right" style="width: 12%;">Qty</th>
+              <th class="right" style="width: 15%;">Price</th>
+              <th class="right" style="width: 15%;">Total</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
         </table>
+
+        <table class="totals">
+          <tbody>
+            <tr class="total-row">
+              <td style="width: 70%;">Subtotal</td>
+              <td class="right" style="width: 30%;">${fmt(payload.subtotal)}</td>
+            </tr>
+            <tr class="total-row">
+              <td>Tax</td>
+              <td class="right">${fmt(payload.tax)}</td>
+            </tr>
+            <tr class="total-row">
+              <td>Total</td>
+              <td class="right">${fmt(payload.total)}</td>
+            </tr>
+            ${
+              hasCreditUsed
+                ? `<tr class="total-row">
+                    <td>Credit Used</td>
+                    <td class="right">${fmt(payload.creditUsed)}</td>
+                  </tr>`
+                : ''
+            }
+            ${
+              hasAfterCredit
+                ? `<tr class="total-row">
+                    <td>After Credit</td>
+                    <td class="right">${fmt(payload?.amountAfterCredit ?? 0)}</td>
+                  </tr>`
+                : ''
+            }
+            ${
+              hasPaid
+                ? `<tr class="total-row">
+                    <td>Paid</td>
+                    <td class="right">${fmt(payload.amountPaid)}</td>
+                  </tr>`
+                : ''
+            }
+            ${
+              hasBalance
+                ? `<tr class="total-row">
+                    <td>Balance</td>
+                    <td class="right">${fmt(payload.remainingBalance)}</td>
+                  </tr>`
+                : ''
+            }
+            ${
+              hasChange
+                ? `<tr class="total-row">
+                    <td>Change</td>
+                    <td class="right">${fmt(payload.changeAmount)}</td>
+                  </tr>`
+                : ''
+            }
+          </tbody>
+        </table>
+
         <div class="divider"></div>
         <div>Payment Method: ${payload.paymentMethod}</div>
-        ${
-          profile.thankYouMessage
-            ? `<div class="meta" style="margin-top:16px;">${profile.thankYouMessage}</div>`
-            : ''
-        }
+        ${profile.thankYouMessage ? `<div class="footer">${profile.thankYouMessage}</div>` : ''}
       </body>
     </html>
   `;

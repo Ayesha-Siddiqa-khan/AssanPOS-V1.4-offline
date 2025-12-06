@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Animated, Pressable } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Animated, Pressable, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -7,11 +7,14 @@ import Toast from 'react-native-toast-message';
 import { useData } from '../../contexts/DataContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { usePos } from '../../contexts/PosContext';
+import { useShop } from '../../contexts/ShopContext';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { formatDateForDisplay, formatTimeForDisplay } from '../../lib/date';
 import { spacing, radii, textStyles } from '../../theme/tokens';
+import { shareTextViaWhatsApp } from '../../lib/share';
+import { createReceiptPdf, generateReceiptHtml, shareReceipt } from '../../services/receiptService';
 
 type StatusFilterKey = 'all' | 'paid' | 'due' | 'partial';
 const formatCurrency = (value: number | null | undefined) => {
@@ -27,10 +30,11 @@ const formatCurrency = (value: number | null | undefined) => {
 };
 
 export default function SalesScreen() {
-  const { sales: rawSales } = useData();
+  const { sales: rawSales, deleteSale } = useData();
   const { t } = useLanguage();
   const router = useRouter();
   const { resetSale } = usePos();
+  const { profile: shopProfile } = useShop();
   const sales = rawSales ?? [];
 
   const [statusFilter, setStatusFilter] = useState<StatusFilterKey>('all');
@@ -114,6 +118,94 @@ export default function SalesScreen() {
     if (lowered.includes('cash')) return 'cash-outline';
     if (lowered.includes('card') || lowered.includes('credit')) return 'card-outline';
     return 'wallet-outline';
+  };
+
+  const storeName =
+    shopProfile.shopName?.trim()?.length ? shopProfile.shopName.trim() : t('Your Store');
+
+  const buildReceiptPayload = (sale: any) => ({
+    id: sale.id,
+    customerName: sale.customer?.name || t('Walk-in Customer'),
+    subtotal: sale.subtotal ?? 0,
+    tax: sale.tax ?? 0,
+    total: sale.total ?? 0,
+    paymentMethod: sale.paymentMethod ?? 'Cash',
+    createdAt: `${sale.date} ${formatTimeForDisplay(sale.time)}`,
+    creditUsed: sale.creditUsed ?? 0,
+    amountAfterCredit: sale.amountAfterCredit ?? sale.total ?? 0,
+    lineItems: (sale.cart || []).map((item: any) => ({
+      name: item.variantName ? `${item.name} - ${item.variantName}` : item.name,
+      quantity: item.quantity,
+      price: item.price,
+    })),
+    changeAmount: sale.changeAmount ?? 0,
+    amountPaid: sale.paidAmount ?? 0,
+    remainingBalance: sale.remainingBalance ?? 0,
+  });
+
+  const shareSaleText = async (sale: any) => {
+    const customerName = sale.customer?.name || t('Walk-in Customer');
+    const shareLines = [
+      `${t('Receipt')} - ${storeName}`,
+      `${t('Sale Completed')}: ${formatDateForDisplay(sale.date)} ${formatTimeForDisplay(sale.time)}`,
+      `${t('Customer')}: ${customerName}`,
+      '',
+      `${t('Items')}:`,
+      ...(sale.cart || []).map((item: any) => {
+        const displayPrice = item.price || 0;
+        const displayQty = item.quantity || 0;
+        const label = item.variantName ? `${item.name} - ${item.variantName}` : item.name;
+        return `• ${label} - ${displayQty} x Rs. ${displayPrice.toLocaleString()}`;
+      }),
+      '',
+      `${t('Total')}: ${formatCurrency(sale.total)}`,
+      `${t('Payment Method')}: ${sale.paymentMethod || 'Cash'}`,
+      sale.remainingBalance > 0 ? `${t('Due')}: ${formatCurrency(sale.remainingBalance)}` : null,
+    ].filter((line): line is string => Boolean(line));
+
+    const shared = await shareTextViaWhatsApp(shareLines.join('\n'));
+    if (!shared) {
+      Toast.show({ type: 'info', text1: t('WhatsApp share failed') });
+    }
+  };
+
+  const shareSalePdf = async (sale: any) => {
+    try {
+      const payload = buildReceiptPayload(sale);
+      const html = await generateReceiptHtml(payload, {
+        name: storeName,
+        thankYouMessage: t('Thank you for your business!'),
+      });
+      const pdf = await createReceiptPdf(html);
+      await shareReceipt(pdf.uri);
+      Toast.show({ type: 'success', text1: t('Receipt shared') });
+    } catch (error) {
+      console.error('Failed to share receipt PDF', error);
+      Toast.show({ type: 'error', text1: t('Unable to share PDF receipt') });
+    }
+  };
+
+  const confirmDeleteSale = (saleId: number) => {
+    Alert.alert(
+      t('Delete sale?'),
+      t('This will remove the sale and restock the items.'),
+      [
+        { text: t('Cancel'), style: 'cancel' },
+        {
+          text: t('Delete'),
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteSale(saleId);
+              Toast.show({ type: 'success', text1: t('Sale deleted') });
+            } catch (error) {
+              console.error('Failed to delete sale', error);
+              Toast.show({ type: 'error', text1: t('Failed to delete sale') });
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -312,6 +404,30 @@ export default function SalesScreen() {
                               {hasDue ? formatCurrency(remainingBalance) : '\u2014'}
                             </Text>
                           </View>
+                        </View>
+
+                        <View style={styles.saleActions}>
+                          <TouchableOpacity
+                            style={[styles.actionButton, styles.actionNeutral]}
+                            onPress={() => shareSaleText(sale)}
+                            accessibilityLabel={t('Share')}
+                          >
+                            <Ionicons name="share-social-outline" size={18} color="#2563eb" />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.actionButton, styles.actionNeutral]}
+                            onPress={() => shareSalePdf(sale)}
+                            accessibilityLabel={t('Share receipt PDF')}
+                          >
+                            <Ionicons name="document-text-outline" size={18} color="#2563eb" />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.actionButton, styles.actionDanger]}
+                            onPress={() => confirmDeleteSale(sale.id)}
+                            accessibilityLabel={t('Delete')}
+                          >
+                            <Ionicons name="trash-outline" size={18} color="#dc2626" />
+                          </TouchableOpacity>
                         </View>
                       </Card>
                     </Pressable>
@@ -595,6 +711,26 @@ const styles = StyleSheet.create({
   },
   saleDueClear: {
     color: '#6b7280',
+  },
+  saleActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingTop: spacing.sm,
+    alignSelf: 'flex-end',
+  },
+  actionButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#eef2ff',
+  },
+  actionNeutral: {
+    backgroundColor: '#eef2ff',
+  },
+  actionDanger: {
+    backgroundColor: '#ffe4e6',
   },
   emptyCard: {
     padding: spacing.xxl,

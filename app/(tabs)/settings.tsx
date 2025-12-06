@@ -445,10 +445,25 @@ export default function SettingsScreen() {
   };
 
   const handleImportProducts = async (preselectedUri?: string, labelOverride?: string) => {
+    if (isImportingCsv) {
+      Toast.show({ type: 'info', text1: t('Import already in progress') });
+      return;
+    }
     setIsImporting(true);
     setIsImportingCsv(true);
+    const IMPORT_TIMEOUT_MS = 60000;
+
+    const runWithTimeout = <T,>(promise: Promise<T>, label?: string): Promise<T> => {
+      return Promise.race([
+        promise,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(label ?? 'IMPORT_TIMEOUT')), IMPORT_TIMEOUT_MS)
+        ),
+      ]);
+    };
+
     try {
-      const result = await importProductsFromCsv(preselectedUri);
+      const result = await runWithTimeout(importProductsFromCsv(preselectedUri), 'IMPORT_TIMEOUT');
       if (!result) {
         Toast.show({ type: 'info', text1: t('No file selected') });
         return;
@@ -496,6 +511,22 @@ export default function SettingsScreen() {
           type: 'error',
           text1: t('Import failed'),
           text2: t('CSV parse error. Check headers/format.'),
+        });
+        return;
+      }
+      if (msg.toLowerCase().includes('database is locked')) {
+        Toast.show({
+          type: 'error',
+          text1: t('Import failed'),
+          text2: t('Please wait for previous database operations to finish.'),
+        });
+        return;
+      }
+      if (msg === 'IMPORT_TIMEOUT') {
+        Toast.show({
+          type: 'error',
+          text1: t('Import taking too long'),
+          text2: t('Please try again after a few seconds.'),
         });
         return;
       }

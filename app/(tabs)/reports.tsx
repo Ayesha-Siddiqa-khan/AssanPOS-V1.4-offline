@@ -5,12 +5,12 @@ import { Ionicons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { Paths, File } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import * as Print from 'expo-print';
 
 import { useData } from '../../contexts/DataContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { Card } from '../../components/ui/Card';
 import { shareTextViaWhatsApp } from '../../lib/share';
+import { createReceiptPdf } from '../../services/receiptService';
 
 type Timeframe = 'daily' | 'weekly' | 'monthly';
 
@@ -325,7 +325,7 @@ export default function ReportsScreen() {
         const html = buildPdfHtml();
         
         try {
-          const { uri } = await Print.printToFileAsync({ html, base64: false });
+          const { uri } = await createReceiptPdf(html);
           
           // Check if sharing is available
           const isSharingAvailable = await Sharing.isAvailableAsync();
@@ -972,7 +972,6 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
   },
 });
-
 
 
 

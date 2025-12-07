@@ -13,6 +13,62 @@ const PRINTER_CHARACTERISTIC_UUID =
 let bleManager: any = null;
 let bleInitialized = false;
 
+export type ThermalPageOptions = {
+  widthMm?: number;
+  heightMm?: number;
+};
+
+const MM_TO_PT = 2.83465; // PDF uses points; 1 mm = 2.83465 pt
+const DEFAULT_THERMAL_WIDTH_MM = 80;
+const FALLBACK_THERMAL_WIDTH_MM = 58;
+
+function resolveThermalWidth(widthMm?: number) {
+  const fromEnv = process.env.EXPO_PUBLIC_PRINTER_WIDTH_MM
+    ? Number(process.env.EXPO_PUBLIC_PRINTER_WIDTH_MM)
+    : undefined;
+  const candidate = Number.isFinite(widthMm) ? widthMm : fromEnv;
+  if (Number.isFinite(candidate)) {
+    // Clamp to the two supported widths (58mm or 80mm)
+    return candidate <= 60 ? FALLBACK_THERMAL_WIDTH_MM : DEFAULT_THERMAL_WIDTH_MM;
+  }
+  return DEFAULT_THERMAL_WIDTH_MM;
+}
+
+function mmToPt(valueMm: number) {
+  return valueMm * MM_TO_PT;
+}
+
+function estimateThermalHeightMm(html: string, widthMm: number) {
+  // Rough heuristic: base height + a few mm per content row, clamped to a sane max.
+  const rowMatches = html.match(/<tr/gi)?.length ?? 0;
+  const paragraphMatches = html.match(/<p/gi)?.length ?? 0;
+  const divMatches = html.match(/<div/gi)?.length ?? 0;
+  const lineBreaks = html.match(/<br/gi)?.length ?? 0;
+  const estimatedLines = rowMatches * 1.5 + paragraphMatches + lineBreaks + divMatches * 0.25;
+  const baseHeight = 120; // mm
+  const dynamicHeight = estimatedLines * 6; // mm per line
+  const total = Math.max(baseHeight + dynamicHeight, baseHeight + 40);
+  // Cap to avoid unbounded pages while still allowing long receipts
+  return Math.min(total, 1200);
+}
+
+function withThermalPageSize(html: string, widthMm: number, heightMm: number) {
+  const pageStyle = `
+    <style>
+      @page { size: ${widthMm}mm ${heightMm}mm; margin: 0; }
+      html, body { width: ${widthMm}mm; margin: 0; padding: 0; }
+    </style>
+  `;
+
+  if (html.includes('</head>')) {
+    return html.replace('</head>', `${pageStyle}</head>`);
+  }
+  if (html.includes('<body')) {
+    return html.replace('<body', `${pageStyle}<body`);
+  }
+  return `${pageStyle}${html}`;
+}
+
 function getBleManager() {
   if (bleInitialized) {
     return bleManager;
@@ -273,17 +329,33 @@ export async function generateReceiptHtml(payload: ReceiptPayload, profile: Stor
   `;
 }
 
-export async function createReceiptPdf(html: string) {
-  return Print.printToFileAsync({ html });
+export async function createReceiptPdf(html: string, options?: ThermalPageOptions) {
+  const widthMm = resolveThermalWidth(options?.widthMm);
+  const heightMm = options?.heightMm ?? estimateThermalHeightMm(html, widthMm);
+  const normalizedHtml = withThermalPageSize(html, widthMm, heightMm);
+
+  const printOptions: any = {
+    html: normalizedHtml,
+    base64: false,
+    width: mmToPt(widthMm),
+    height: mmToPt(heightMm),
+    margins: { top: 0, left: 0, right: 0, bottom: 0 },
+  };
+
+  return Print.printToFileAsync(printOptions);
 }
 
-export async function openPrintPreview(html: string) {
+export async function openPrintPreview(html: string, options?: ThermalPageOptions) {
+  const widthMm = resolveThermalWidth(options?.widthMm);
+  const heightMm = options?.heightMm ?? estimateThermalHeightMm(html, widthMm);
+  const normalizedHtml = withThermalPageSize(html, widthMm, heightMm);
+
   if (Platform.OS === 'web') {
-    await invokePrint(html);
+    await invokePrint(normalizedHtml, widthMm, heightMm);
     return;
   }
 
-  await invokePrint(html);
+  await invokePrint(normalizedHtml, widthMm, heightMm);
 }
 
 export async function shareReceipt(fileUri: string) {
@@ -294,10 +366,17 @@ export async function shareReceipt(fileUri: string) {
   return true;
 }
 
-async function invokePrint(html: string) {
+async function invokePrint(html: string, widthMm: number, heightMm: number) {
   const printer = Print as unknown as { printAsync?: (options: { html: string }) => Promise<void> };
   if (typeof printer.printAsync === 'function') {
-    await printer.printAsync({ html });
+    const options: any = {
+      html,
+      // Ensure the print preview honors the thermal width and zero margins
+      width: mmToPt(widthMm),
+      height: mmToPt(heightMm),
+      margins: { top: 0, left: 0, right: 0, bottom: 0 },
+    };
+    await printer.printAsync(options);
   } else {
     console.warn('printAsync is not available in expo-print module for this platform.');
   }

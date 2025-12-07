@@ -59,6 +59,15 @@ A comprehensive Point of Sale application for hardware shops built with React Na
 
 - **Barcode scan behavior**: In Product Selection, instant-add mode auto-adds scanned items to the cart; manual mode fills the search box so you can review before adding. Multi-scan keeps the camera open with a short delay to avoid double reads.
 
+## Printing & PDF sharing
+
+- Core helpers live in `services/receiptService.ts` (`generateReceiptHtml`, `createReceiptPdf`, `shareReceipt`, `emailReceipt`, `openPrintPreview`, Bluetooth helpers `scanForPrinters`/`printReceiptViaBluetooth` that require a dev build with `react-native-ble-plx`).
+- Sales list (`app/(tabs)/sales.tsx`) prints receipts via a saved Bluetooth printer when available, otherwise falls back to the platform print preview; also offers PDF sharing with the same helpers.
+- Checkout success (`app/modals/sale-success.tsx`) lets you scan/select a Bluetooth printer, print immediately, share the receipt PDF, or email it.
+- Customer account (`app/modals/customer-account.tsx`) can share/print individual sale receipts plus printable credit history views; uses the shared receipt helpers.
+- Vendor history (`app/vendor-history.tsx`) prints or shares vendor summaries and individual purchases as PDFs.
+- Reports (`app/(tabs)/reports.tsx`) builds report HTML, generates a PDF with `expo-print`, and shares it when `expo-sharing` is available (falls back to showing the generated file path).
+
 ## Recent updates
 
 - All displayed times now use 12-hour format with AM/PM across the app and PDFs.

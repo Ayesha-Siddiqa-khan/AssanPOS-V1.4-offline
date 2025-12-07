@@ -9,10 +9,11 @@
 - Short query ordering prioritizes prefix matches before other results.
 
 ## User feedback addressed
-1) Too many variants shown for short queries — now avoided with prefix-only search for 1-char and no auto-expand for queries <=2.
-2) Suggestions capped — removed cap and made list scrollable.
-3) Ordering — suggestions and results prioritize entries starting with the query.
-4) Default scan frame size — barcode scan frame defaults to Small (product-selection modal).
+
+1) Too many variants shown for short queries ï¿½ now avoided with prefix-only search for 1-char and no auto-expand for queries <=2.
+2) Suggestions capped ï¿½ removed cap and made list scrollable.
+3) Ordering ï¿½ suggestions and results prioritize entries starting with the query.
+4) Default scan frame size ï¿½ barcode scan frame defaults to Small (product-selection modal).
 
 ## Notes for future tweaks
 - Tuning Fuse thresholds may further adjust match strictness.

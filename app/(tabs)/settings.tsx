@@ -175,6 +175,11 @@ export default function SettingsScreen() {
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [isTogglingBiometric, setIsTogglingBiometric] = useState(false);
 
+  // Printer settings state
+  const [printerWidth, setPrinterWidth] = useState<'58' | '80'>('80');
+  const [isPrinterModalVisible, setIsPrinterModalVisible] = useState(false);
+  const [savedPrinters, setSavedPrinters] = useState<Array<{id: string; name: string; type: string}>>([]);
+
   // User management is now done through the admin panel (Supabase)
   // Disable local user management since it uses the old SQLite system
   const canManageUsers = false;
@@ -200,6 +205,7 @@ export default function SettingsScreen() {
     loadData();
     checkBiometricAvailability();
     loadCacheSchedule();
+    loadPrinterSettings();
   }, []);
 
   // Re-check biometric state when user changes (e.g., after login)
@@ -266,6 +272,21 @@ export default function SettingsScreen() {
       Toast.show({ type: 'error', text1: t('Failed to load data') });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadPrinterSettings = async () => {
+    try {
+      const width = await AsyncStorage.getItem('printerWidth');
+      if (width === '58' || width === '80') {
+        setPrinterWidth(width);
+      }
+      const saved = await AsyncStorage.getItem('savedPrinters');
+      if (saved) {
+        setSavedPrinters(JSON.parse(saved));
+      }
+    } catch (error) {
+      console.error('Failed to load printer settings', error);
     }
   };
 
@@ -1429,6 +1450,145 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* Printer Settings */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>{t('Printer Settings')}</Text>
+          <View style={styles.card}>
+            {/* Printer Width Selection */}
+            <View style={styles.printerWidthContainer}>
+              <Text style={styles.printerLabel}>{t('Thermal Printer Width')}</Text>
+              <View style={styles.printerWidthButtons}>
+                <TouchableOpacity
+                  style={[
+                    styles.printerWidthButton,
+                    printerWidth === '58' && styles.printerWidthButtonActive,
+                  ]}
+                  onPress={async () => {
+                    setPrinterWidth('58');
+                    await AsyncStorage.setItem('printerWidth', '58');
+                    Toast.show({
+                      type: 'success',
+                      text1: t('Printer width set to 58mm'),
+                    });
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.printerWidthText,
+                      printerWidth === '58' && styles.printerWidthTextActive,
+                    ]}
+                  >
+                    58mm
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.printerWidthButton,
+                    printerWidth === '80' && styles.printerWidthButtonActive,
+                  ]}
+                  onPress={async () => {
+                    setPrinterWidth('80');
+                    await AsyncStorage.setItem('printerWidth', '80');
+                    Toast.show({
+                      type: 'success',
+                      text1: t('Printer width set to 80mm'),
+                    });
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.printerWidthText,
+                      printerWidth === '80' && styles.printerWidthTextActive,
+                    ]}
+                  >
+                    80mm
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Add New Printer Button */}
+            <TouchableOpacity
+              style={styles.addPrinterButton}
+              onPress={() => setIsPrinterModalVisible(true)}
+              activeOpacity={0.85}
+            >
+              <View style={styles.addPrinterIcon}>
+                <Ionicons name="add-circle-outline" size={24} color="#2563eb" />
+              </View>
+              <View style={styles.addPrinterContent}>
+                <Text style={styles.addPrinterTitle}>{t('Add New Printer')}</Text>
+                <Text style={styles.addPrinterSubtitle}>
+                  {t('Connect Bluetooth, USB, or Network printer')}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
+            </TouchableOpacity>
+
+            {/* Saved Printers List */}
+            {savedPrinters.length > 0 && (
+              <View style={styles.savedPrintersContainer}>
+                <Text style={styles.savedPrintersTitle}>{t('Saved Printers')}</Text>
+                {savedPrinters.map((printer) => (
+                  <View key={printer.id} style={styles.printerItem}>
+                    <View style={styles.printerItemIcon}>
+                      <Ionicons
+                        name={
+                          printer.type === 'bluetooth'
+                            ? 'bluetooth'
+                            : printer.type === 'usb'
+                            ? 'hardware-chip-outline'
+                            : 'globe-outline'
+                        }
+                        size={20}
+                        color="#64748b"
+                      />
+                    </View>
+                    <View style={styles.printerItemContent}>
+                      <Text style={styles.printerItemName}>{printer.name}</Text>
+                      <Text style={styles.printerItemType}>
+                        {printer.type === 'bluetooth'
+                          ? t('Bluetooth Printer')
+                          : printer.type === 'usb'
+                          ? t('USB Printer')
+                          : t('Network Printer')}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => {
+                        Alert.alert(
+                          t('Remove Printer'),
+                          t('Remove this printer from saved devices?'),
+                          [
+                            { text: t('Cancel'), style: 'cancel' },
+                            {
+                              text: t('Remove'),
+                              style: 'destructive',
+                              onPress: async () => {
+                                const updated = savedPrinters.filter((p) => p.id !== printer.id);
+                                setSavedPrinters(updated);
+                                await AsyncStorage.setItem('savedPrinters', JSON.stringify(updated));
+                                Toast.show({
+                                  type: 'success',
+                                  text1: t('Printer removed'),
+                                });
+                              },
+                            },
+                          ]
+                        );
+                      }}
+                    >
+                      <Ionicons name="trash-outline" size={20} color="#ef4444" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        </View>
+
         {/* Current User Info */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('Current User')}</Text>
@@ -2120,6 +2280,107 @@ export default function SettingsScreen() {
             </Button>
           </View>
         </View>
+      </Modal>
+
+      {/* Add Printer Modal */}
+      <Modal
+        visible={isPrinterModalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setIsPrinterModalVisible(false)}
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setIsPrinterModalVisible(false)}>
+              <Ionicons name="close" size={24} color="#64748b" />
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>{t('Add New Printer')}</Text>
+            <View style={{ width: 24 }} />
+          </View>
+
+          <View style={styles.printerModalContent}>
+            <Text style={styles.printerModalSubtitle}>{t('Select printer type')}</Text>
+            
+            {/* Bluetooth Printer */}
+            <TouchableOpacity
+              style={styles.printerTypeCard}
+              onPress={() => {
+                setIsPrinterModalVisible(false);
+                Alert.alert(
+                  t('Bluetooth Printer'),
+                  t('Make sure your printer is turned on and in pairing mode. Go to your device Bluetooth settings to pair the printer first, then try printing a receipt.'),
+                  [
+                    { text: t('Cancel'), style: 'cancel' },
+                    {
+                      text: t('Open Settings'),
+                      onPress: () => {
+                        // On Android, you can open Bluetooth settings
+                        if (Platform.OS === 'android') {
+                          // User can manually go to settings
+                          Alert.alert(t('Info'), t('Please go to Settings > Bluetooth to pair your printer'));
+                        }
+                      },
+                    },
+                  ]
+                );
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.printerTypeIcon, { backgroundColor: '#dbeafe' }]}>
+                <Ionicons name="bluetooth" size={32} color="#2563eb" />
+              </View>
+              <Text style={styles.printerTypeName}>{t('Bluetooth Printer')}</Text>
+              <Text style={styles.printerTypeDesc}>{t('Connect via Bluetooth')}</Text>
+            </TouchableOpacity>
+
+            {/* USB Printer */}
+            <TouchableOpacity
+              style={styles.printerTypeCard}
+              onPress={() => {
+                setIsPrinterModalVisible(false);
+                Alert.alert(
+                  t('USB Printer'),
+                  t('Connect your USB printer using an OTG cable. Your device will automatically detect it when you print.'),
+                  [{ text: t('OK') }]
+                );
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.printerTypeIcon, { backgroundColor: '#fef3c7' }]}>
+                <Ionicons name="hardware-chip-outline" size={32} color="#d97706" />
+              </View>
+              <Text style={styles.printerTypeName}>{t('USB Printer')}</Text>
+              <Text style={styles.printerTypeDesc}>{t('Connect via USB cable')}</Text>
+            </TouchableOpacity>
+
+            {/* Network Printer */}
+            <TouchableOpacity
+              style={styles.printerTypeCard}
+              onPress={() => {
+                setIsPrinterModalVisible(false);
+                Alert.alert(
+                  t('Network Printer'),
+                  t('Make sure your printer is connected to the same Wi-Fi network. Enter the printer IP address when printing.'),
+                  [{ text: t('OK') }]
+                );
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.printerTypeIcon, { backgroundColor: '#dcfce7' }]}>
+                <Ionicons name="globe-outline" size={32} color="#16a34a" />
+              </View>
+              <Text style={styles.printerTypeName}>{t('Network Printer')}</Text>
+              <Text style={styles.printerTypeDesc}>{t('Connect via Wi-Fi')}</Text>
+            </TouchableOpacity>
+
+            <View style={styles.printerHelpCard}>
+              <Ionicons name="information-circle-outline" size={20} color="#2563eb" />
+              <Text style={styles.printerHelpText}>
+                {t('Your thermal printer receipts are optimized for 80mm and 58mm paper widths. Adjust the width setting above if needed.')}
+              </Text>
+            </View>
+          </View>
+        </SafeAreaView>
       </Modal>
 
       {/* User Form Modal */}
@@ -3036,5 +3297,169 @@ const styles = StyleSheet.create({
   },
   toggleKnobActive: {
     transform: [{ translateX: 20 }],
+  },
+  // Printer Settings Styles
+  printerWidthContainer: {
+    marginBottom: 20,
+  },
+  printerLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0f172a',
+    marginBottom: 12,
+  },
+  printerWidthButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  printerWidthButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: radii.md,
+    borderWidth: 2,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+  },
+  printerWidthButtonActive: {
+    borderColor: '#2563eb',
+    backgroundColor: '#eff6ff',
+  },
+  printerWidthText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  printerWidthTextActive: {
+    color: '#2563eb',
+  },
+  addPrinterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#f8fafc',
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    marginTop: 8,
+  },
+  addPrinterIcon: {
+    marginRight: 12,
+  },
+  addPrinterContent: {
+    flex: 1,
+  },
+  addPrinterTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#0f172a',
+    marginBottom: 2,
+  },
+  addPrinterSubtitle: {
+    fontSize: 13,
+    color: '#64748b',
+  },
+  savedPrintersContainer: {
+    marginTop: 20,
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+  },
+  savedPrintersTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0f172a',
+    marginBottom: 12,
+  },
+  printerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#f8fafc',
+    borderRadius: radii.md,
+    marginBottom: 8,
+  },
+  printerItemIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  printerItemContent: {
+    flex: 1,
+  },
+  printerItemName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0f172a',
+    marginBottom: 2,
+  },
+  printerItemType: {
+    fontSize: 12,
+    color: '#64748b',
+  },
+  printerModalContent: {
+    flex: 1,
+    padding: spacing.xl,
+  },
+  printerModalSubtitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748b',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  printerTypeCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: radii.lg,
+    padding: 24,
+    alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  printerTypeIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  printerTypeName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  printerTypeDesc: {
+    fontSize: 14,
+    color: '#64748b',
+    textAlign: 'center',
+  },
+  printerHelpCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#eff6ff',
+    padding: 16,
+    borderRadius: radii.md,
+    marginTop: 8,
+    gap: 12,
+  },
+  printerHelpText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#1e40af',
+    lineHeight: 18,
   },
 });

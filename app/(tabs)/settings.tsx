@@ -1586,6 +1586,65 @@ export default function SettingsScreen() {
                 ))}
               </View>
             )}
+
+            {/* Test Print Button */}
+            <TouchableOpacity
+              style={styles.testPrintButton}
+              onPress={async () => {
+                try {
+                  const { generateReceiptHtml, createReceiptPdf, openPrintPreview } = await import('../../services/receiptService');
+                  
+                  // Create test receipt data
+                  const testPayload = {
+                    id: 'TEST-' + Date.now(),
+                    customerName: t('Test Customer'),
+                    subtotal: 100,
+                    tax: 0,
+                    total: 100,
+                    paymentMethod: t('Cash'),
+                    createdAt: new Date().toLocaleString(),
+                    lineItems: [
+                      { name: t('Test Item 1'), quantity: 2, price: 25 },
+                      { name: t('Test Item 2'), quantity: 1, price: 50 },
+                    ],
+                    amountPaid: 100,
+                    changeAmount: 0,
+                    remainingBalance: 0,
+                  };
+
+                  const storeProfile = {
+                    name: shopProfile?.shopName || t('Your Store'),
+                    address: t('Test Address'),
+                    phone: shopProfile?.phoneNumber || '123-456-7890',
+                    thankYouMessage: t('Thank you for your business!'),
+                  };
+
+                  Toast.show({
+                    type: 'info',
+                    text1: t('Generating test receipt...'),
+                  });
+
+                  const html = await generateReceiptHtml(testPayload, storeProfile);
+                  const widthMm = printerWidth === '58' ? 58 : 80;
+                  await openPrintPreview(html, { widthMm });
+
+                  Toast.show({
+                    type: 'success',
+                    text1: t('Test receipt ready to print'),
+                  });
+                } catch (error) {
+                  console.error('Test print failed:', error);
+                  Alert.alert(
+                    t('Test Print Failed'),
+                    t('Could not generate test receipt. Please try again.')
+                  );
+                }
+              }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="print-outline" size={20} color="#2563eb" />
+              <Text style={styles.testPrintText}>{t('Test Print Receipt')}</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -3461,5 +3520,23 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#1e40af',
     lineHeight: 18,
+  },
+  testPrintButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    backgroundColor: '#eff6ff',
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    marginTop: 16,
+  },
+  testPrintText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#2563eb',
   },
 });

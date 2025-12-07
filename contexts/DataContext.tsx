@@ -284,7 +284,7 @@ interface DataContextType {
   getVendorById: (id: number) => Vendor | undefined;
   
   // Purchase methods
-  addPurchase: (purchase: Omit<Purchase, 'id'>) => Promise<void>;
+  addPurchase: (purchase: Omit<Purchase, 'id'>) => Promise<number>;
   updatePurchase: (id: number, updates: Partial<Purchase>) => Promise<void>;
   deletePurchase: (id: number) => Promise<void>;
   getVendorPurchases: (vendorId: number) => Purchase[];
@@ -323,6 +323,8 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
 
   const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasBootstrappedRef = useRef(false);
+  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isRefreshingRef = useRef(false);
 
   const queueCloudSync = useCallback(() => {
     if (syncTimeoutRef.current) {
@@ -399,6 +401,11 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
   const toArray = <T,>(value: any, fallback: T[] = []): T[] =>
     Array.isArray(value) ? (value as T[]) : fallback;
 
+  const toSafeNumber = (value: any, fallback = 0) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
   const loadAllData = async () => {
     let succeeded = false;
     try {
@@ -426,12 +433,18 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       const jazzCashList = toArray<JazzCashTransaction>(dbJazzCash);
       const ownerFundList = toArray<OwnerFundTransaction>(dbOwnerFunds);
 
-      setCustomers(customerList.map(normalizeCustomerRecord));
+      // Normalize data first to avoid doing it multiple times
+      const normalizedCustomers = customerList.map(normalizeCustomerRecord);
+      const normalizedVendors = vendorList.map(normalizeVendorRecord);
+      const normalizedPurchases = purchaseList.map(normalizePurchaseRecord);
+
+      // Update all state at once - React 18+ automatically batches these
+      setCustomers(normalizedCustomers);
+      setVendors(normalizedVendors);
+      setPurchases(normalizedPurchases);
       setSales(salesList);
       setProducts(productList);
       setCreditTransactions(creditTxnList);
-      setVendors(vendorList.map(normalizeVendorRecord));
-      setPurchases(purchaseList.map(normalizePurchaseRecord));
       setExpenditures(expenditureList);
       setJazzCashTransactions(jazzCashList);
       setOwnerFundTransactions(ownerFundList);
@@ -451,7 +464,19 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const refreshData = async () => {
+    // Debounce rapid refresh calls to prevent cascading re-renders
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current);
+    }
+
+    // If already refreshing, schedule another refresh after current one completes
+    if (isRefreshingRef.current) {
+      refreshTimeoutRef.current = setTimeout(() => refreshData(), 100);
+      return;
+    }
+
     try {
+      isRefreshingRef.current = true;
       console.log('[DataContext] Refreshing all data');
       await loadAllData();
       if (hasBootstrappedRef.current) {
@@ -461,6 +486,8 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     } catch (error) {
       console.error('[DataContext] Error refreshing data:', error);
       // Don't throw - data refresh failure shouldn't crash the app
+    } finally {
+      isRefreshingRef.current = false;
     }
   };
 
@@ -847,6 +874,40 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
 
   // Purchase methods
   const addPurchase = async (purchase: Omit<Purchase, 'id'>) => {
+    const safeItems = Array.isArray(purchase.items) ? purchase.items : [];
+    const sanitizedItems = safeItems.map((item) => ({
+      productId: item.productId,
+      variantId: item.variantId ?? null,
+      quantity: toSafeNumber(item.quantity, 0),
+      costPrice: toSafeNumber(item.costPrice, 0),
+      name: item.name,
+      variantName: item.variantName,
+    }));
+
+    const normalizedPurchase = {
+      ...purchase,
+      vendor: purchase.vendor?.id
+        ? {
+            id: purchase.vendor.id,
+            name: purchase.vendor.name || '',
+            phone: purchase.vendor.phone || '',
+          }
+        : undefined,
+      items: sanitizedItems,
+      subtotal: toSafeNumber(purchase.subtotal, 0),
+      taxRate: toSafeNumber(purchase.taxRate, 0),
+      tax: toSafeNumber(purchase.tax, 0),
+      total: toSafeNumber(purchase.total, 0),
+      paidAmount: toSafeNumber(purchase.paidAmount, 0),
+      remainingBalance: Math.max(0, toSafeNumber(purchase.remainingBalance, 0)),
+      paymentMethod: purchase.paymentMethod || 'Cash',
+      invoiceNumber: purchase.invoiceNumber?.trim() || undefined,
+      date: purchase.date || new Date().toISOString().slice(0, 10),
+      time: purchase.time || new Date().toTimeString().slice(0, 8),
+      status: purchase.status || 'Due',
+      note: purchase.note?.trim() || undefined,
+    };
+
     const productCache = new Map<number, Product>();
 
     const getProductSnapshot = (productId: number): Product | null => {
@@ -863,49 +924,57 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       return snapshot;
     };
 
-    await db.runInTransaction(async (connection) => {
-      await db.addPurchase(purchase, { connection });
+    try {
+      const purchaseId = await db.runInTransaction(async (connection) => {
+        const newPurchaseId = await db.addPurchase(normalizedPurchase, { connection });
 
-      for (const item of purchase.items) {
-        const productSnapshot = getProductSnapshot(item.productId);
-        if (!productSnapshot) {
-          continue;
-        }
-
-        if (productSnapshot.hasVariants && item.variantId && productSnapshot.variants) {
-          const variant = productSnapshot.variants.find((v) => v.id === item.variantId);
-          if (variant) {
-            variant.stock = (variant.stock || 0) + item.quantity;
-          } else {
-            console.warn('Variant not found while adding purchase', {
-              productId: item.productId,
-              variantId: item.variantId,
-            });
+        for (const item of normalizedPurchase.items) {
+          const productSnapshot = getProductSnapshot(item.productId);
+          if (!productSnapshot) {
+            continue;
           }
-        } else {
-          productSnapshot.stock = (productSnapshot.stock || 0) + item.quantity;
+
+          if (productSnapshot.hasVariants && item.variantId && productSnapshot.variants) {
+            const variant = productSnapshot.variants.find((v) => v.id === item.variantId);
+            if (variant) {
+              variant.stock = (variant.stock || 0) + item.quantity;
+            } else {
+              console.warn('Variant not found while adding purchase', {
+                productId: item.productId,
+                variantId: item.variantId,
+              });
+            }
+          } else {
+            productSnapshot.stock = (productSnapshot.stock || 0) + item.quantity;
+          }
+
+          await db.updateProduct(productSnapshot, { connection });
         }
 
-        await db.updateProduct(productSnapshot, { connection });
-      }
-
-      if (purchase.vendor) {
-        const vendor = vendors.find((v) => v.id === purchase.vendor!.id);
-        if (vendor) {
-          const vendorTotalPurchases = Number(vendor.totalPurchases) || 0;
-          const vendorPayable = Number(vendor.payable) || 0;
-          const updatedVendor = {
-            ...vendor,
-            totalPurchases: vendorTotalPurchases + purchase.total,
-            lastPurchase: purchase.date,
-            payable: vendorPayable + (purchase.remainingBalance || 0),
-          };
-          await db.updateVendor(updatedVendor, { connection });
+        if (normalizedPurchase.vendor) {
+          const vendor = vendors.find((v) => v.id === normalizedPurchase.vendor!.id);
+          if (vendor) {
+            const vendorTotalPurchases = Number(vendor.totalPurchases) || 0;
+            const vendorPayable = Number(vendor.payable) || 0;
+            const updatedVendor = {
+              ...vendor,
+              totalPurchases: vendorTotalPurchases + normalizedPurchase.total,
+              lastPurchase: normalizedPurchase.date,
+              payable: vendorPayable + (normalizedPurchase.remainingBalance || 0),
+            };
+            await db.updateVendor(updatedVendor, { connection });
+          }
         }
-      }
-    });
 
-    await refreshData();
+        return newPurchaseId;
+      });
+
+      await refreshData();
+      return purchaseId;
+    } catch (error) {
+      console.error('[addPurchase] Failed to record purchase', error);
+      throw error;
+    }
   };
 
   const updatePurchase = async (id: number, updates: Partial<Purchase>) => {

@@ -30,9 +30,12 @@ import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
 import { ScanModeToggle, ScanMode } from '../../components/ui/ScanModeToggle';
 import { db } from '../../lib/database';
+import { formatDateForStorage } from '../../lib/date';
 
 const PRODUCT_SELECTION_BARCODE_TYPES: BarcodeType[] = ['ean13', 'code128', 'upc_a', 'upc_e', 'code39', 'code93'];
 const SCAN_REENABLE_DELAY_MS = 4000;
+// Keep dropdown short for speed/clarity
+const MAX_SUGGESTIONS = 7;
 
 const normalizeSearchText = (text: string) =>
   text
@@ -50,7 +53,7 @@ export default function ProductSelectionModal() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const isWideLayout = Platform.OS === 'web' && width > 520;
   const { t } = useLanguage();
   const { products, customers, addSale } = useData();
@@ -88,6 +91,7 @@ export default function ProductSelectionModal() {
   const [canScanBarcode, setCanScanBarcode] = useState(false);
   const [scanMode, setScanMode] = useState<ScanMode>('barcode');
   const [multiScanMode, setMultiScanMode] = useState(false);
+  const [scanFrameSize, setScanFrameSize] = useState<'small' | 'medium' | 'large'>('small');
   const lastAutoAddBarcodeRef = useRef<string | null>(null);
   const [showVoiceModal, setShowVoiceModal] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -119,6 +123,7 @@ export default function ProductSelectionModal() {
   const [customerMode, setCustomerMode] = useState<'walk-in' | 'saved'>(
     selectedCustomerId ? 'saved' : 'walk-in'
   );
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [isPriceLookup, setIsPriceLookup] = useState(false);
   const [quantityInputs, setQuantityInputs] = useState<Record<string, string>>({});
   const [activeQuantityKey, setActiveQuantityKey] = useState<string | null>(null);
@@ -167,6 +172,13 @@ export default function ProductSelectionModal() {
   useEffect(() => {
     setTaxInput(taxRate === 0 ? '' : taxRate.toString());
   }, [taxRate]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   useEffect(() => {
     if (showCamera) {
@@ -240,7 +252,47 @@ export default function ProductSelectionModal() {
     };
   }, []);
 
-  const normalizedSearchQuery = searchQuery.trim();
+  const normalizedSearchQuery = (debouncedSearchQuery || searchQuery).trim();
+
+  const suggestionItems = useMemo(() => {
+    const items: Array<{
+      productId: number;
+      variantId: number | null;
+      label: string;
+      searchText: string;
+      barcodeText: string;
+    }> = [];
+
+    products.forEach((product) => {
+      const productLabel = (product.name || t('Unnamed product')).trim() || t('Unnamed product');
+      
+      // Add base product
+      items.push({
+        productId: product.id,
+        variantId: null,
+        label: productLabel,
+        searchText: normalizeSearchText(productLabel),
+        barcodeText: normalizeBarcodeValue(product.barcode),
+      });
+
+      // Add variants if they exist
+      if (product.hasVariants) {
+        const variants = getVariantArray(product);
+        variants.forEach((variant: any) => {
+          const variantLabel = `${productLabel} - ${variant.name}`;
+          items.push({
+            productId: product.id,
+            variantId: variant.id,
+            label: variantLabel,
+            searchText: normalizeSearchText(variantLabel),
+            barcodeText: normalizeBarcodeValue(variant.barcode),
+          });
+        });
+      }
+    });
+
+    return items;
+  }, [products, t]);
 
   useEffect(() => {
     if (suppressSuggestions) {
@@ -253,55 +305,28 @@ export default function ProductSelectionModal() {
       return;
     }
 
-    // Build searchable list (include barcode for direct scan matches)
-    const searchableItems: Array<{
-      productId: number;
-      variantId: number | null;
-      label: string;
-      searchText: string;
-      barcodeText: string;
-    }> = [];
+    if (normalizedSearchQuery.length < 2) {
+      const quick = suggestionItems
+        .filter((item) => item.searchText.startsWith(normalizedSearchQuery))
+        .slice(0, MAX_SUGGESTIONS);
+
+      setSearchSuggestions(
+        quick.map((r) => ({
+          productId: r.productId,
+          variantId: r.variantId,
+          label: r.label,
+        })),
+      );
+      return;
+    }
+
+    // Use suggestionItems for fuzzy search (already includes variants)
     const textQuery = normalizeSearchText(normalizedSearchQuery);
     const barcodeQuery = normalizeBarcodeValue(normalizedSearchQuery);
     const queryForSearch =
       /\d/.test(normalizedSearchQuery) && barcodeQuery ? barcodeQuery : textQuery;
 
-    products.forEach((product) => {
-      // Add product
-      searchableItems.push({
-        productId: product.id,
-        variantId: null,
-        label: product.name,
-        searchText: normalizeSearchText(product.name),
-        barcodeText: normalizeBarcodeValue(product.barcode),
-      });
-
-      // Add variants
-      const variants = getVariantArray(product);
-      if (product.hasVariants && variants.length > 0) {
-        variants.forEach((variant: any) => {
-          const variantLabel = `${product.name} • ${variant.name}`;
-          // Normalize all searchable text
-          const searchableText = normalizeSearchText([
-            product.name,
-            variant.name,
-            variant.size || '',
-            variant.color || '',
-            variant.design || '',
-          ].filter(Boolean).join(' '));
-
-          searchableItems.push({
-            productId: product.id,
-            variantId: variant.id,
-            label: variantLabel,
-            searchText: searchableText,
-            barcodeText: normalizeBarcodeValue(variant.barcode),
-          });
-        });
-      }
-    });
-
-    const results = fuzzySearch(searchableItems, queryForSearch, {
+    const results = fuzzySearch(suggestionItems, queryForSearch, {
       keys: [
         { name: 'searchText', weight: 1 },
         { name: 'barcodeText', weight: 2 },
@@ -311,12 +336,12 @@ export default function ProductSelectionModal() {
       maxScore: 0.3, // Show more lenient matches
     });
 
-    setSearchSuggestions(results.slice(0, 6).map(r => ({
+    setSearchSuggestions(results.slice(0, MAX_SUGGESTIONS).map(r => ({
       productId: r.productId,
       variantId: r.variantId,
       label: r.label,
     })));
-  }, [normalizedSearchQuery, products, suppressSuggestions]);
+  }, [normalizedSearchQuery, suggestionItems, suppressSuggestions]);
 
   // Create searchable items with variant information
   const searchableItems = useMemo(() => {
@@ -337,9 +362,10 @@ export default function ProductSelectionModal() {
 
   // Filter products based on search query
   const filteredProducts = useMemo(() => {
-    if (!searchQuery.trim()) return []; // Return empty when no search query
+    const activeQuery = (debouncedSearchQuery || searchQuery).trim();
+    if (!activeQuery) return []; // Return empty when no search query
 
-    const normalizedSearchQuery = normalizeSearchText(searchQuery);
+    const normalizedSearchQuery = normalizeSearchText(activeQuery);
 
     const results = fuzzySearch(searchableItems, normalizedSearchQuery, {
       keys: [
@@ -405,7 +431,7 @@ export default function ProductSelectionModal() {
 
       return { ...product, variants };
     });
-  }, [searchQuery, searchableItems, products]);
+  }, [debouncedSearchQuery, searchQuery, searchableItems, products]);
 
   const persistCustomNames = async (next: string[]) => {
     try {
@@ -771,6 +797,27 @@ export default function ProductSelectionModal() {
     setShowCamera(true);
   };
 
+  const scanFrameStyle = useMemo(() => {
+    const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+    const smallHeight = clamp(height * 0.28, 120, 170);
+    const mediumHeight = clamp(height * 0.34, 140, 190);
+    const largeHeight = clamp(height * 0.38, 160, 210);
+
+    if (scanFrameSize === 'small') return { width: '70%', height: smallHeight };
+    if (scanFrameSize === 'large') return { width: '88%', height: largeHeight };
+    return { width: '78%', height: mediumHeight };
+  }, [scanFrameSize, height]);
+
+  const scanFrameLabel = useMemo(() => {
+    if (scanFrameSize === 'small') return t('Small');
+    if (scanFrameSize === 'large') return t('Large');
+    return t('Medium');
+  }, [scanFrameSize, t]);
+
+  const cycleScanFrameSize = () => {
+    setScanFrameSize((prev) => (prev === 'small' ? 'medium' : prev === 'medium' ? 'large' : 'small'));
+  };
+
   // Handle barcode scanned from camera
   const handleBarCodeScanned = (data: string) => {
     if (!canScanBarcode) {
@@ -1003,7 +1050,7 @@ export default function ProductSelectionModal() {
     setIsQuickPaying(true);
     try {
       const now = new Date();
-      const date = now.toISOString().split('T')[0];
+      const date = formatDateForStorage(now);
       const time = now.toTimeString().slice(0, 8);
       const creditAvailable = Math.max(selectedCustomer?.credit ?? 0, 0);
       const creditApplied =
@@ -1123,7 +1170,7 @@ export default function ProductSelectionModal() {
     setIsCompletingSale(true);
     try {
       const now = new Date();
-      const date = now.toISOString().split('T')[0];
+      const date = formatDateForStorage(now);
       const time = now.toTimeString().slice(0, 8);
       const creditAvailable = Math.max(selectedCustomer?.credit ?? 0, 0);
       const creditApplied =
@@ -1417,16 +1464,22 @@ export default function ProductSelectionModal() {
           {/* Search suggestions dropdown - right below search input */}
           {searchSuggestions.length > 0 && (
             <View style={styles.suggestionsDropdown}>
-              {searchSuggestions.map((suggestion) => (
-                <TouchableOpacity
-                  key={`${suggestion.productId}-${suggestion.variantId ?? 'base'}`}
-                  style={styles.suggestionRow}
-                  onPress={() => handleSuggestionSelect(suggestion)}
-                >
-                  <Ionicons name="search-outline" size={16} color="#9ca3af" />
-                  <Text style={styles.suggestionLabel}>{suggestion.label}</Text>
-                </TouchableOpacity>
-              ))}
+              <ScrollView
+                style={styles.suggestionsScroll}
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+              >
+                {searchSuggestions.map((suggestion) => (
+                  <TouchableOpacity
+                    key={`${suggestion.productId}-${suggestion.variantId ?? 'base'}`}
+                    style={styles.suggestionRow}
+                    onPress={() => handleSuggestionSelect(suggestion)}
+                  >
+                    <Ionicons name="search-outline" size={16} color="#9ca3af" />
+                    <Text style={styles.suggestionLabel}>{suggestion.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             </View>
           )}
 
@@ -1476,7 +1529,7 @@ export default function ProductSelectionModal() {
             </View>
           )}
 
-          {filteredProducts.length > 0 && (
+          {filteredProducts.length > 0 && !quickPaymentEnabled && (
             <View style={styles.resultsContainer}>
               <Text style={styles.resultsTitle}>{t('Search Results')}</Text>
               {filteredProducts.map((product, productIndex) => {
@@ -1516,10 +1569,12 @@ export default function ProductSelectionModal() {
                               ? `${variant.customAttributeLabel}: ${variant.customAttributeValue}`
                               : null,
                           ].filter(Boolean);
+                          const safeVariantName =
+                            (variant.name || t('Variant')).trim() || t('Variant');
                           return (
                             <View key={variantKey} style={styles.variantRow}>
                               <View style={styles.variantDetails}>
-                                <Text style={styles.variantName}>{variant.name}</Text>
+                                <Text style={styles.variantName}>{safeVariantName}</Text>
                                 {detailTags.length > 0 && (
                                   <View style={styles.variantMetaChips}>
                                     {detailTags.map((tag, idx) => (
@@ -2082,19 +2137,27 @@ export default function ProductSelectionModal() {
                     <CameraView
                       style={StyleSheet.absoluteFillObject}
                       facing="back"
-                      barcodeScannerSettings={{
-                        barcodeTypes: barcodeTypesForMode,
-                      }}
-                      onBarcodeScanned={(result) => {
-                        if (canScanBarcode && result?.data) {
-                          handleBarCodeScanned(result.data);
-                        }
-                      }}
-                    />
-                    <View style={styles.cameraOverlay}>
-                      <View style={styles.scanFrame} />
-                    </View>
+                    barcodeScannerSettings={{
+                      barcodeTypes: barcodeTypesForMode,
+                    }}
+                    onBarcodeScanned={(result) => {
+                      if (canScanBarcode && result?.data) {
+                        handleBarCodeScanned(result.data);
+                      }
+                    }}
+                  />
+                  <View style={styles.cameraOverlay}>
+                    <TouchableOpacity
+                      style={styles.frameSizeChip}
+                      activeOpacity={0.8}
+                      onPress={cycleScanFrameSize}
+                    >
+                      <Ionicons name="resize-outline" size={15} color="#0f172a" />
+                      <Text style={styles.frameSizeChipText}>{t('Frame')}: {scanFrameLabel}</Text>
+                    </TouchableOpacity>
+                    <View style={[styles.scanFrame, scanFrameStyle]} />
                   </View>
+                </View>
                   <TouchableOpacity
                     style={styles.manualToggleButton}
                     onPress={() => setShowCamera(false)}
@@ -2599,6 +2662,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 2,
+    maxHeight: 600,
+  },
+  suggestionsScroll: {
+    maxHeight: 600,
   },
   suggestionRow: {
     flexDirection: 'row',
@@ -3503,9 +3570,28 @@ const styles = StyleSheet.create({
   multiScanLabelActive: {
     color: '#1d4ed8',
   },
+  frameSizeChip: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  frameSizeChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0f172a',
+  },
   scanFrame: {
-    width: 250,
-    height: 250,
+    width: '78%',
+    height: 180,
     borderWidth: 2,
     borderColor: '#10b981',
     borderRadius: 12,
@@ -3752,6 +3838,8 @@ const styles = StyleSheet.create({
     color: '#1f2937',
   },
 });
+
+
 
 
 

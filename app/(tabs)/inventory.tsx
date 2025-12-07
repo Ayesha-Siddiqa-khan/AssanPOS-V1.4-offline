@@ -3,6 +3,7 @@ import {
   View,
   Text,
   TextInput,
+  FlatList,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
@@ -748,11 +749,7 @@ export default function InventoryScreen() {
     [products]
   );
 
-  const filteredProducts = useMemo(() => {
-    const query = debouncedQuery.trim().toLowerCase();
-    const barcodeQuery = normalizeBarcodeValue(debouncedQuery);
-    
-    // Apply filters first
+  const filteredByFilters = useMemo(() => {
     const passesFilters = (product: typeof products[number]) => {
       if (filters.lowStockOnly) {
         const isLow =
@@ -776,108 +773,126 @@ export default function InventoryScreen() {
       return true;
     };
 
-    let filtered = products.filter(passesFilters);
+    return products.filter(passesFilters);
+  }, [products, filters]);
 
-    // Apply search if there's a query
-    if (query) {
-      // Fast path: direct barcode match
-      const directBarcodeMatch = filtered.find(
-        (product) =>
-          normalizeBarcodeValue(product.barcode) === barcodeQuery ||
-          (product.hasVariants &&
-            product.variants &&
-            product.variants.some((v) => normalizeBarcodeValue(v.barcode) === barcodeQuery))
-      );
-      if (directBarcodeMatch) {
-        return [directBarcodeMatch];
+  const searchableItems = useMemo(() => {
+    return filteredByFilters.flatMap((product) => {
+      const items = [
+        {
+          product,
+          searchText: product.name || '',
+          category: product.category || '',
+          barcode: product.barcode != null ? String(product.barcode) : '',
+          isVariant: false,
+          variantId: null as number | null,
+        },
+      ];
+
+      if (product.hasVariants && product.variants) {
+        product.variants.forEach((variant) => {
+          items.push({
+            product,
+            searchText: `${product.name} - ${variant.name}`,
+            category: product.category || '',
+            barcode: variant.barcode != null ? String(variant.barcode) : '',
+            isVariant: true,
+            variantId: variant.id,
+          });
+        });
       }
 
-      // Create searchable items with product and variant combinations
-      const searchableItems = filtered.flatMap((product) => {
-        const items = [
-          {
-            product,
-            searchText: product.name || '',
-            category: product.category || '',
-            barcode: product.barcode != null ? String(product.barcode) : '',
-            isVariant: false,
-            variantId: null as number | null,
-          },
-        ];
+      return items;
+    });
+  }, [filteredByFilters]);
 
-        // Add variant combinations
-        if (product.hasVariants && product.variants) {
-          product.variants.forEach((variant) => {
-            items.push({
-              product,
-              searchText: `${product.name} - ${variant.name}`,
-              category: product.category || '',
-              barcode: variant.barcode != null ? String(variant.barcode) : '',
-              isVariant: true,
-              variantId: variant.id,
-            });
-          });
+  const fuse = useMemo(() => {
+    if (searchableItems.length === 0) {
+      return null;
+    }
+    return new Fuse(searchableItems, {
+      keys: [
+        { name: 'searchText', weight: 2 },
+        { name: 'category', weight: 1 },
+        { name: 'barcode', weight: 1.5 },
+      ],
+      threshold: 0.3,
+      ignoreLocation: true,
+      useExtendedSearch: false,
+      distance: 100,
+      minMatchCharLength: 1,
+      includeScore: true,
+    });
+  }, [searchableItems]);
+
+  const filteredProducts = useMemo(() => {
+    const query = debouncedQuery.trim().toLowerCase();
+    const barcodeQuery = normalizeBarcodeValue(debouncedQuery);
+
+    if (!query) {
+      return filteredByFilters;
+    }
+
+    // Fast path: direct barcode match
+    const directBarcodeMatch = filteredByFilters.find(
+      (product) =>
+        normalizeBarcodeValue(product.barcode) === barcodeQuery ||
+        (product.hasVariants &&
+          product.variants &&
+          product.variants.some((v) => normalizeBarcodeValue(v.barcode) === barcodeQuery))
+    );
+    if (directBarcodeMatch) {
+      return [directBarcodeMatch];
+    }
+
+    // For very short queries (e.g., single letter), avoid fuzzy variant matching to reduce noise
+    if (query.length < 2) {
+      return filteredByFilters.filter((product) => {
+        const name = product.name?.toLowerCase() ?? '';
+        const category = product.category?.toLowerCase() ?? '';
+        const barcode = normalizeBarcodeValue(product.barcode);
+        return (
+          name.includes(query) ||
+          category.includes(query) ||
+          (barcode && barcode.includes(barcodeQuery))
+        );
+      });
+    }
+
+    if (!fuse) {
+      return filteredByFilters;
+    }
+
+    const results = fuse.search(query);
+    const isSpecificQuery = query.length > 3;
+    const maxScore = isSpecificQuery ? 0.05 : 0.2;
+    const filteredResults = results.filter((r) => (r.score ?? 1) <= maxScore);
+
+    const productIds = new Set(filteredResults.map((result) => result.item.product.id));
+    let filtered = filteredByFilters.filter((product) => productIds.has(product.id));
+
+    const matchingVariantIds = new Set(
+      filteredResults
+        .filter((r) => r.item.isVariant && r.item.variantId)
+        .map((r) => r.item.variantId)
+    );
+
+    filtered = filtered.map((product) => {
+      if (product.hasVariants && product.variants && matchingVariantIds.size > 0) {
+        const filteredVariants = product.variants.filter((v) => matchingVariantIds.has(v.id));
+        if (filteredVariants.length === 0) {
+          return product;
         }
+        return {
+          ...product,
+          variants: filteredVariants,
+        };
+      }
+      return product;
+    });
 
-        return items;
-      });
-
-      // Configure Fuse.js
-      const fuse = new Fuse(searchableItems, {
-        keys: [
-          { name: 'searchText', weight: 2 },
-          { name: 'category', weight: 1 },
-          { name: 'barcode', weight: 1.5 },
-        ],
-        threshold: 0.3,
-        ignoreLocation: true,
-        useExtendedSearch: false,
-        distance: 100,
-        minMatchCharLength: 1,
-        includeScore: true,
-      });
-
-      // Search and get unique products
-      const results = fuse.search(query);
-      
-      // Filter results by score - only keep very good matches
-      // If query is long and specific (like "shell - R3"), be very strict
-      // If query is short (like "r"), be more lenient
-      const isSpecificQuery = query.length > 3;
-      const maxScore = isSpecificQuery ? 0.05 : 0.2; // Stricter for specific searches
-      const filteredResults = results.filter(r => (r.score ?? 1) <= maxScore);
-      
-      const productIds = new Set(filteredResults.map((result) => result.item.product.id));
-      filtered = filtered.filter((product) => productIds.has(product.id));
-
-      // Store matching variant IDs for filtering display
-      const matchingVariantIds = new Set(
-        filteredResults
-          .filter(r => r.item.isVariant && r.item.variantId)
-          .map(r => r.item.variantId)
-      );
-
-      // Filter variants in products to only show matching ones
-      filtered = filtered.map(product => {
-        if (product.hasVariants && product.variants && matchingVariantIds.size > 0) {
-          const filteredVariants = product.variants.filter(v => 
-            matchingVariantIds.has(v.id)
-          );
-          
-          // If no variants match but product name matches, show all variants
-          if (filteredVariants.length === 0) {
-            return product;
-          }
-          
-          return {
-            ...product,
-            variants: filteredVariants,
-          };
-        }
-        return product;
-      });
-
-      // Auto-expand products when search matches variants
+    // Only auto-expand when the query is sufficiently specific (avoid expanding all variants on short queries)
+    if (query.length > 2) {
       const productsToExpand: Record<number, boolean> = {};
       filteredResults.forEach((result) => {
         if (result.item.isVariant) {
@@ -890,8 +905,32 @@ export default function InventoryScreen() {
       }
     }
 
+    // For short queries, prioritize prefix matches so "ac" shows items starting with "ac" before others
+    const prefixMatchesFirst = (item: ProductItem) => {
+      const q = query;
+      const name = item.name?.toLowerCase() ?? '';
+      const category = item.category?.toLowerCase() ?? '';
+      const variantStart = item.hasVariants && item.variants
+        ? item.variants.some((v) => (v.name ?? '').toLowerCase().startsWith(q))
+        : false;
+      return (
+        name.startsWith(q) ||
+        category.startsWith(q) ||
+        variantStart
+      );
+    };
+
+    if (query.length <= 3) {
+      filtered = filtered.slice().sort((a, b) => {
+        const aPrefix = prefixMatchesFirst(a);
+        const bPrefix = prefixMatchesFirst(b);
+        if (aPrefix === bPrefix) return 0;
+        return aPrefix ? -1 : 1;
+      });
+    }
+
     return filtered;
-  }, [products, debouncedQuery, filters]);
+  }, [debouncedQuery, filteredByFilters, fuse]);
 
   // Auto-suggestions for search (uses immediate searchQuery for responsiveness)
   const suggestions = useMemo(() => {
@@ -955,7 +994,20 @@ export default function InventoryScreen() {
       }
     });
     
-    return Array.from(suggestionSet).slice(0, 8); // Limit to 8 suggestions
+    const ordered = Array.from(suggestionSet);
+    const lowerQuery = query;
+
+    // Sort so entries starting with the query appear first, followed by alphabetical order
+    ordered.sort((a, b) => {
+      const aStarts = a.text.toLowerCase().startsWith(lowerQuery);
+      const bStarts = b.text.toLowerCase().startsWith(lowerQuery);
+      if (aStarts !== bStarts) {
+        return aStarts ? -1 : 1;
+      }
+      return a.text.localeCompare(b.text);
+    });
+
+    return ordered;
   }, [products, searchQuery]);
 
   const handleSuggestionSelect = (suggestion: typeof suggestions[number]) => {
@@ -1046,360 +1098,122 @@ export default function InventoryScreen() {
     );
   };
 
-  const emptyState = filteredProducts.length === 0;
+  const contentPadding = Math.max(insets.bottom + spacing.xl, 160);
 
-  return (
-    <>
-      <SafeAreaView style={styles.safeArea} edges={['bottom']}>
-        <ScrollView
-          contentContainerStyle={[
-            styles.content,
-            { paddingBottom: Math.max(insets.bottom + spacing.xl, 160) },
-          ]}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-        <Text style={styles.headerTitle}>{t('Inventory Management')}</Text>
+  const renderProductItem = useCallback(
+    ({ item: product }: { item: ProductItem }) => {
+      const baseStock = product.stock ?? 0;
+      const totalStock =
+        product.hasVariants && product.variants
+          ? product.variants.reduce((sum, variant) => sum + (variant.stock ?? 0), 0)
+          : baseStock;
+      const variantCount = product.variants?.length ?? 0;
+      const baseValue = (product.price ?? 0) * baseStock;
+      const baseStatusStyle =
+        baseStock === 0
+          ? styles.variantCardDanger
+          : baseStock < 5
+            ? styles.variantCardWarning
+            : styles.variantCardOkay;
+      const isExpanded = Boolean(expandedProducts[product.id]);
+      const isVariantProduct = product.hasVariants && product.variants;
 
-        <View style={styles.searchWrapper}>
-          <View style={styles.searchContainer}>
-            <Ionicons name="search" size={18} color="#9ca3af" />
-            <TextInput
-              style={styles.searchInput}
-              placeholder={t('Search products, variants, or barcode...')}
-              placeholderTextColor="#9ca3af"
-              value={searchQuery}
-              onChangeText={(text) => {
-                setSearchQuery(text);
-                setShowSuggestions(text.trim().length >= 1);
-              }}
-              onFocus={() => {
-                if (searchQuery.trim().length >= 1) {
-                  setShowSuggestions(true);
-                }
-              }}
-              onBlur={() => {
-                // Delay hiding suggestions to allow tap on suggestion
-                setTimeout(() => setShowSuggestions(false), 200);
-              }}
-              returnKeyType="search"
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity 
-                style={styles.clearButton} 
-                onPress={() => {
-                  setSearchQuery('');
-                  setShowSuggestions(false);
-                }}
+      return (
+        <View style={styles.productCard}>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardTitle}>
+              <View style={styles.avatarCircle}>
+                <Ionicons name="cube-outline" size={20} color="#2563eb" />
+              </View>
+              <View>
+                {highlightText(product.name || '', debouncedQuery)}
+                <Text style={styles.productMeta}>{product.category}</Text>
+              </View>
+            </View>
+            <View style={styles.variantBadge}>
+              <Text style={styles.variantBadgeValue}>{String(variantCount)}</Text>
+              <Text style={styles.variantBadgeLabel}>
+                {variantCount === 1 ? t('variant') : t('variants')}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.variantLinksRow}>
+            <TouchableOpacity
+              onPress={() =>
+                setExpandedProducts((prev) => ({
+                  ...prev,
+                  [product.id]: !prev[product.id],
+                }))
+              }
+              activeOpacity={0.75}
+            >
+              <Text style={styles.linkText}>
+                {isVariantProduct
+                  ? isExpanded
+                    ? t('Hide variants')
+                    : t('Show variants')
+                  : isExpanded
+                    ? 'Hide details'
+                    : 'View details'}
+              </Text>
+            </TouchableOpacity>
+            {product.hasVariants ? (
+              <TouchableOpacity
+                onPress={() => router.push(`/modals/product-variants?productId=${product.id}`)}
+                activeOpacity={0.75}
               >
-                <Ionicons name="close-circle" size={18} color="#9ca3af" />
+                <Text style={styles.linkText}>{t('Add variant')}</Text>
               </TouchableOpacity>
-            )}
-            <TouchableOpacity style={styles.scanButton} onPress={handleOpenScanner}>
-              <Ionicons name="scan-outline" size={20} color="#2563eb" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.voiceButton} onPress={handleVoiceSearch}>
-              <Ionicons name="mic-outline" size={20} color="#10b981" />
-            </TouchableOpacity>
+            ) : null}
           </View>
 
-          {showSuggestions && suggestions.length > 0 && (
-            <View style={styles.suggestionsContainer}>
-              {suggestions.map((suggestion, index) => (
-                <TouchableOpacity
-                  key={`${suggestion.type}-${index}`}
-                  style={styles.suggestionItem}
-                  onPress={() => handleSuggestionSelect(suggestion)}
-                >
-                  <Ionicons 
-                    name={
-                      suggestion.type === 'category' ? 'folder-outline' : 
-                      suggestion.type === 'variant' ? 'list-outline' : 
-                      'cube-outline'
-                    } 
-                    size={16} 
-                    color="#6b7280" 
-                  />
-                  <Text style={styles.suggestionText}>{suggestion.text}</Text>
-                  <View style={[
-                    styles.suggestionBadge,
-                    suggestion.type === 'category' && styles.categoryBadge,
-                    suggestion.type === 'variant' && styles.suggestionVariantBadge,
-                  ]}>
-                    <Text style={styles.suggestionBadgeText}>
-                      {suggestion.type === 'category' ? t('Category') : 
-                       suggestion.type === 'variant' ? t('Variant') : 
-                       t('Product')}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-        </View>
+          {isExpanded && product.hasVariants && product.variants && (
+            <View style={styles.variantList}>
+              {product.variants.length === 0 ? (
+                <Text style={styles.variantEmpty}>{t('No variants yet')}</Text>
+              ) : (
+                product.variants.map((variant) => {
+                  const variantValue = (variant.price ?? 0) * (variant.stock ?? 0);
+                  const stockCount = variant.stock ?? 0;
+                  const cardStatusStyle =
+                    stockCount === 0
+                      ? styles.variantCardDanger
+                      : stockCount < 5
+                        ? styles.variantCardWarning
+                        : styles.variantCardOkay;
 
-        <View style={styles.actionRow}>
-          <TouchableOpacity
-            style={[
-              styles.filterButton,
-              (filters.lowStockOnly || filters.hasVariantsOnly) && styles.filterButtonActive,
-            ]}
-            activeOpacity={0.8}
-            onPress={() => setFilterModalVisible(true)}
-          >
-            <Ionicons name="funnel-outline" size={16} color="#2563eb" />
-            <Text style={styles.filterLabel}>{t('Filter')}</Text>
-            <Ionicons name="chevron-down" size={14} color="#2563eb" />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.scanHeaderButton, styles.scanSegment]}
-            activeOpacity={0.85}
-            onPress={() => openProductScanner()}
-            disabled={products.length === 0}
-          >
-            <Ionicons name="barcode-outline" size={16} color="#047857" />
-            <Text style={styles.scanSegmentLabel}>{t('Scan')}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.addButton}
-            activeOpacity={0.85}
-            onPress={() => router.push('/modals/product-entry')}
-          >
-            <Ionicons name="add" size={16} color="#ffffff" />
-            <Text style={styles.addButtonLabel}>{t('Add Product')}</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.statsRow}>
-          <View style={[styles.statCard, styles.totalCard]}>
-            <View style={styles.statTop}>
-              <Ionicons name="cube-outline" size={16} color="#0f172a" />
-              <Text style={styles.statLabel}>{t('Total Products')}</Text>
-            </View>
-            <Text style={styles.statValue}>{String(totalProducts)}</Text>
-          </View>
-          <View style={[styles.statCard, styles.valueCard]}>
-            <View style={styles.statTop}>
-              <Ionicons name="cash-outline" size={16} color="#047857" />
-              <Text style={styles.statLabel}>{t('Stock Value')}</Text>
-            </View>
-            <Text style={[styles.statValue, styles.statValuePositive]} numberOfLines={1} adjustsFontSizeToFit>
-              {currencyFormatter.format(stockValue)}
-            </Text>
-          </View>
-          <View style={[styles.statCard, styles.lowStockCard]}>
-            <View style={styles.statTop}>
-              <Ionicons name="warning-outline" size={16} color="#b91c1c" />
-              <Text style={styles.statLabel}>{t('Low Stock')}</Text>
-            </View>
-            <Text style={[styles.statValue, styles.statValueWarning]}>{String(lowStockCount)}</Text>
-          </View>
-        </View>
-
-        {emptyState ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="cube-outline" size={48} color="#cbd5f5" />
-            <Text style={styles.emptyText}>{t('No products found')}</Text>
-          </View>
-        ) : (
-          <View style={styles.productList}>
-            {filteredProducts.map((product) => {
-              const baseStock = product.stock ?? 0;
-              const totalStock =
-                product.hasVariants && product.variants
-                  ? product.variants.reduce((sum, variant) => sum + (variant.stock ?? 0), 0)
-                  : baseStock;
-              const variantCount = product.variants?.length ?? 0;
-              const baseValue = (product.price ?? 0) * baseStock;
-              const baseStatusStyle =
-                baseStock === 0
-                  ? styles.variantCardDanger
-                  : baseStock < 5
-                  ? styles.variantCardWarning
-                  : styles.variantCardOkay;
-              const isExpanded = Boolean(expandedProducts[product.id]);
-              const isVariantProduct = product.hasVariants && product.variants;
-
-              return (
-                <View key={product.id} style={styles.productCard}>
-                  <View style={styles.cardHeader}>
-                    <View style={styles.cardTitle}>
-                      <View style={styles.avatarCircle}>
-                        <Ionicons name="cube-outline" size={20} color="#2563eb" />
-                      </View>
-                      <View>
-                        {highlightText(product.name || '', debouncedQuery)}
-                        <Text style={styles.productMeta}>{product.category}</Text>
-                      </View>
-                    </View>
-                    <View style={styles.variantBadge}>
-                      <Text style={styles.variantBadgeValue}>{String(variantCount)}</Text>
-                      <Text style={styles.variantBadgeLabel}>
-                        {variantCount === 1 ? t('variant') : t('variants')}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.variantLinksRow}>
-                    <TouchableOpacity
-                      onPress={() =>
-                        setExpandedProducts((prev) => ({
-                          ...prev,
-                          [product.id]: !prev[product.id],
-                        }))
-                      }
-                      activeOpacity={0.75}
-                    >
-                      <Text style={styles.linkText}>
-                        {isVariantProduct
-                          ? isExpanded
-                            ? t('Hide variants')
-                            : t('Show variants')
-                          : isExpanded
-                            ? 'Hide details'
-                            : 'View details'}
-                      </Text>
-                    </TouchableOpacity>
-                    {product.hasVariants ? (
-                      <TouchableOpacity
-                        onPress={() =>
-                          router.push(`/modals/product-variants?productId=${product.id}`)
-                        }
-                        activeOpacity={0.75}
-                      >
-                        <Text style={styles.linkText}>{t('Add variant')}</Text>
-                      </TouchableOpacity>
-                    ) : null}
-                  </View>
-
-                  {isExpanded && product.hasVariants && product.variants && (
-                    <View style={styles.variantList}>
-                      {product.variants.length === 0 ? (
-                        <Text style={styles.variantEmpty}>{t('No variants yet')}</Text>
-                      ) : (
-                        product.variants.map((variant) => {
-                          const variantValue =
-                            (variant.price ?? 0) * (variant.stock ?? 0);
-                          const stockCount = variant.stock ?? 0;
-                          const cardStatusStyle =
-                            stockCount === 0
-                              ? styles.variantCardDanger
-                              : stockCount < 5
-                              ? styles.variantCardWarning
-                              : styles.variantCardOkay;
-
-                          return (
-                            <View key={variant.id} style={[styles.variantCard, cardStatusStyle]}>
-                              <View style={styles.variantHeaderCompact}>
-                                <View style={styles.variantNameRow}>
-                                  <Ionicons name="pricetag-outline" size={14} color="#2563eb" />
-                                  {highlightText(variant.name || '', debouncedQuery, styles.variantName)}
-                                </View>
-                                <Text style={styles.variantValueSmall}>
-                                  {t('Value')}: <Text style={styles.variantStatValueBold}>{currencyFormatter.format(variantValue)}</Text>
-                                </Text>
-                              </View>
-
-                              <View style={styles.variantStatsCompact}>
-                                <View style={styles.variantStatColumn}>
-                                  <View style={styles.stockRow}>
-                                    <Text style={styles.variantStatValue}>
-                                      {t('Stock')}: {String(stockCount)}
-                                    </Text>
-                                    {stockCount === 0 ? (
-                                      <View style={styles.stockPillDanger}>
-                                        <Text style={styles.stockPillDangerText}>{t('Out of stock')}</Text>
-                                      </View>
-                                    ) : null}
-                                  </View>
-                                  <Text style={styles.variantStatValue}>
-                                    {t('Cost')}: {currencyFormatter.format(variant.costPrice ?? 0)}
-                                  </Text>
-                                </View>
-                                <View style={styles.variantStatColumnRight}>
-                                  <Text style={styles.variantStatValueBold}>
-                                    {t('Price')}: {currencyFormatter.format(variant.price ?? 0)}
-                                  </Text>
-                                </View>
-                              </View>
-
-                              <View style={styles.variantActions}>
-                                <View style={styles.variantActionButtons}>
-                                  <TouchableOpacity
-                                    style={[styles.adjustButton, styles.scanActionButton]}
-                                    onPress={() => openStockScanner(product, variant)}
-                                  >
-                                    <Text style={[styles.adjustLabel, styles.scanActionLabel]}>
-                                      {t('Add')}
-                                    </Text>
-                                  </TouchableOpacity>
-                                  <TouchableOpacity
-                                    style={styles.adjustButton}
-                                    onPress={() =>
-                                      router.push(
-                                        `/modals/stock-adjustment?productId=${product.id}&variantId=${variant.id}`
-                                      )
-                                    }
-                                  >
-                                    <Ionicons name="cube-outline" size={16} color="#2563eb" />
-                                    <Text style={styles.adjustLabel}>{t('Adjust')}</Text>
-                                  </TouchableOpacity>
-                                </View>
-                                <View style={styles.variantActionIcons}>
-                                  <TouchableOpacity
-                                    style={styles.iconButtonLeft}
-                                    onPress={() =>
-                                      router.push(
-                                        `/modals/variant-edit?productId=${product.id}&variantId=${variant.id}`
-                                      )
-                                    }
-                                  >
-                                    <Ionicons name="create-outline" size={16} color="#2563eb" />
-                                  </TouchableOpacity>
-                                  <TouchableOpacity
-                                    style={styles.iconButtonDelete}
-                                    onPress={() => handleDeleteVariant(product.id, variant.id)}
-                                  >
-                                    <Ionicons name="trash-outline" size={15} color="#ef4444" />
-                                  </TouchableOpacity>
-                                </View>
-                              </View>
-                            </View>
-                          );
-                        })
-                      )}
-                    </View>
-                  )}
-
-                  {isExpanded && !product.hasVariants && (
-                    <View style={[styles.variantCard, baseStatusStyle]}>
+                  return (
+                    <View key={variant.id} style={[styles.variantCard, cardStatusStyle]}>
                       <View style={styles.variantHeaderCompact}>
                         <View style={styles.variantNameRow}>
                           <Ionicons name="pricetag-outline" size={14} color="#2563eb" />
-                          <Text style={styles.variantName}>{t('Base')}</Text>
+                          {highlightText(variant.name || '', debouncedQuery, styles.variantName)}
                         </View>
                         <Text style={styles.variantValueSmall}>
-                          {t('Value')}:{' '}
-                          <Text style={styles.variantStatValueBold}>
-                            {currencyFormatter.format(baseValue)}
-                          </Text>
+                          {t('Value')}: <Text style={styles.variantStatValueBold}>{currencyFormatter.format(variantValue)}</Text>
                         </Text>
                       </View>
 
                       <View style={styles.variantStatsCompact}>
                         <View style={styles.variantStatColumn}>
+                          <View style={styles.stockRow}>
+                            <Text style={styles.variantStatValue}>
+                              {t('Stock')}: {String(stockCount)}
+                            </Text>
+                            {stockCount === 0 ? (
+                              <View style={styles.stockPillDanger}>
+                                <Text style={styles.stockPillDangerText}>{t('Out of stock')}</Text>
+                              </View>
+                            ) : null}
+                          </View>
                           <Text style={styles.variantStatValue}>
-                            {t('Stock')}: {String(baseStock)}
-                          </Text>
-                          <Text style={styles.variantStatValue}>
-                            {t('Cost')}: {currencyFormatter.format(product.costPrice ?? 0)}
+                            {t('Cost')}: {currencyFormatter.format(variant.costPrice ?? 0)}
                           </Text>
                         </View>
                         <View style={styles.variantStatColumnRight}>
                           <Text style={styles.variantStatValueBold}>
-                            {t('Price')}: {currencyFormatter.format(product.price ?? 0)}
+                            {t('Price')}: {currencyFormatter.format(variant.price ?? 0)}
                           </Text>
                         </View>
                       </View>
@@ -1408,7 +1222,7 @@ export default function InventoryScreen() {
                         <View style={styles.variantActionButtons}>
                           <TouchableOpacity
                             style={[styles.adjustButton, styles.scanActionButton]}
-                            onPress={() => openStockScanner(product)}
+                            onPress={() => openStockScanner(product, variant)}
                           >
                             <Text style={[styles.adjustLabel, styles.scanActionLabel]}>
                               {t('Add')}
@@ -1417,7 +1231,9 @@ export default function InventoryScreen() {
                           <TouchableOpacity
                             style={styles.adjustButton}
                             onPress={() =>
-                              router.push(`/modals/stock-adjustment?productId=${product.id}`)
+                              router.push(
+                                `/modals/stock-adjustment?productId=${product.id}&variantId=${variant.id}`
+                              )
                             }
                           >
                             <Ionicons name="cube-outline" size={16} color="#2563eb" />
@@ -1427,97 +1243,372 @@ export default function InventoryScreen() {
                         <View style={styles.variantActionIcons}>
                           <TouchableOpacity
                             style={styles.iconButtonLeft}
-                            onPress={() => router.push(`/modals/product-entry?productId=${product.id}`)}
+                            onPress={() =>
+                              router.push(
+                                `/modals/variant-edit?productId=${product.id}&variantId=${variant.id}`
+                              )
+                            }
                           >
                             <Ionicons name="create-outline" size={16} color="#2563eb" />
                           </TouchableOpacity>
                           <TouchableOpacity
                             style={styles.iconButtonDelete}
-                            onPress={() =>
-                              Alert.alert(
-                                t('Delete Product'),
-                                t('Are you sure you want to delete this product?'),
-                                [
-                                  { text: t('Cancel'), style: 'cancel' },
-                                  {
-                                    text: t('Delete'),
-                                    style: 'destructive',
-                                    onPress: async () => {
-                                      try {
-                                        await deleteProduct(product.id);
-                                        Toast.show({
-                                          type: 'success',
-                                          text1: t('Product deleted successfully'),
-                                        });
-                                      } catch (error) {
-                                        console.error('Failed to delete product', error);
-                                        Toast.show({
-                                          type: 'error',
-                                          text1: t('Something went wrong'),
-                                        });
-                                      }
-                                    },
-                                  },
-                                ]
-                              )
-                            }
+                            onPress={() => handleDeleteVariant(product.id, variant.id)}
                           >
                             <Ionicons name="trash-outline" size={15} color="#ef4444" />
                           </TouchableOpacity>
                         </View>
                       </View>
                     </View>
-                  )}
+                  );
+                })
+              )}
+            </View>
+          )}
 
-                  {product.hasVariants ? (
-                    <View style={styles.cardActionRow}>
-                      <TouchableOpacity
-                        style={styles.iconButtonLeft}
-                        onPress={() => router.push(`/modals/product-entry?productId=${product.id}`)}
-                      >
-                        <Ionicons name="create-outline" size={16} color="#2563eb" />
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.iconButtonRight}
-                        onPress={() =>
-                          Alert.alert(
-                            t('Delete Product'),
-                            t('Are you sure you want to delete this product?'),
-                            [
-                              { text: t('Cancel'), style: 'cancel' },
-                              {
-                                text: t('Delete'),
-                                style: 'destructive',
-                                onPress: async () => {
-                                  try {
-                                    await deleteProduct(product.id);
-                                    Toast.show({
-                                      type: 'success',
-                                      text1: t('Product deleted successfully'),
-                                    });
-                                  } catch (error) {
-                                    console.error('Failed to delete product', error);
-                                    Toast.show({
-                                      type: 'error',
-                                      text1: t('Something went wrong'),
-                                    });
-                                  }
-                                },
-                              },
-                            ]
-                          )
-                        }
-                      >
-                        <Ionicons name="trash-outline" size={16} color="#ef4444" />
-                      </TouchableOpacity>
-                    </View>
-                  ) : null}
+          {isExpanded && !product.hasVariants && (
+            <View style={[styles.variantCard, baseStatusStyle]}>
+              <View style={styles.variantHeaderCompact}>
+                <View style={styles.variantNameRow}>
+                  <Ionicons name="pricetag-outline" size={14} color="#2563eb" />
+                  <Text style={styles.variantName}>{t('Base')}</Text>
                 </View>
-              );
-            })}
-          </View>
-        )}
-        </ScrollView>
+                <Text style={styles.variantValueSmall}>
+                  {t('Value')}: <Text style={styles.variantStatValueBold}>{currencyFormatter.format(baseValue)}</Text>
+                </Text>
+              </View>
+
+              <View style={styles.variantStatsCompact}>
+                <View style={styles.variantStatColumn}>
+                  <Text style={styles.variantStatValue}>
+                    {t('Stock')}: {String(baseStock)}
+                  </Text>
+                  <Text style={styles.variantStatValue}>
+                    {t('Cost')}: {currencyFormatter.format(product.costPrice ?? 0)}
+                  </Text>
+                </View>
+                <View style={styles.variantStatColumnRight}>
+                  <Text style={styles.variantStatValueBold}>
+                    {t('Price')}: {currencyFormatter.format(product.price ?? 0)}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.variantActions}>
+                <View style={styles.variantActionButtons}>
+                  <TouchableOpacity
+                    style={[styles.adjustButton, styles.scanActionButton]}
+                    onPress={() => openStockScanner(product)}
+                  >
+                    <Text style={[styles.adjustLabel, styles.scanActionLabel]}>{t('Add')}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.adjustButton}
+                    onPress={() => router.push(`/modals/stock-adjustment?productId=${product.id}`)}
+                  >
+                    <Ionicons name="cube-outline" size={16} color="#2563eb" />
+                    <Text style={styles.adjustLabel}>{t('Adjust')}</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.variantActionIcons}>
+                  <TouchableOpacity
+                    style={styles.iconButtonLeft}
+                    onPress={() => router.push(`/modals/product-entry?productId=${product.id}`)}
+                  >
+                    <Ionicons name="create-outline" size={16} color="#2563eb" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.iconButtonDelete}
+                    onPress={() =>
+                      Alert.alert(
+                        t('Delete Product'),
+                        t('Are you sure you want to delete this product?'),
+                        [
+                          { text: t('Cancel'), style: 'cancel' },
+                          {
+                            text: t('Delete'),
+                            style: 'destructive',
+                            onPress: async () => {
+                              try {
+                                await deleteProduct(product.id);
+                                Toast.show({
+                                  type: 'success',
+                                  text1: t('Product deleted successfully'),
+                                });
+                              } catch (error) {
+                                console.error('Failed to delete product', error);
+                                Toast.show({
+                                  type: 'error',
+                                  text1: t('Something went wrong'),
+                                });
+                              }
+                            },
+                          },
+                        ]
+                      )
+                    }
+                  >
+                    <Ionicons name="trash-outline" size={15} color="#ef4444" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          )}
+
+          {product.hasVariants ? (
+            <View style={styles.cardActionRow}>
+              <TouchableOpacity
+                style={styles.iconButtonLeft}
+                onPress={() => router.push(`/modals/product-entry?productId=${product.id}`)}
+              >
+                <Ionicons name="create-outline" size={16} color="#2563eb" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.iconButtonRight}
+                onPress={() =>
+                  Alert.alert(
+                    t('Delete Product'),
+                    t('Are you sure you want to delete this product?'),
+                    [
+                      { text: t('Cancel'), style: 'cancel' },
+                      {
+                        text: t('Delete'),
+                        style: 'destructive',
+                        onPress: async () => {
+                          try {
+                            await deleteProduct(product.id);
+                            Toast.show({
+                              type: 'success',
+                              text1: t('Product deleted successfully'),
+                            });
+                          } catch (error) {
+                            console.error('Failed to delete product', error);
+                            Toast.show({
+                              type: 'error',
+                              text1: t('Something went wrong'),
+                            });
+                          }
+                        },
+                      },
+                    ]
+                  )
+                }
+              >
+                <Ionicons name="trash-outline" size={16} color="#ef4444" />
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
+          {!product.hasVariants && (
+            <View style={styles.statRow}>
+              <View>
+                <Text style={styles.statLabel}>{t('Stock')}</Text>
+                <Text style={styles.statValue}>{String(totalStock)}</Text>
+              </View>
+              <View>
+                <Text style={styles.statLabel}>{t('Price')}</Text>
+                <Text style={styles.statValue}>
+                  {currencyFormatter.format(product.price ?? 0)}
+                </Text>
+              </View>
+            </View>
+          )}
+        </View>
+      );
+    },
+    [
+      debouncedQuery,
+      deleteProduct,
+      expandedProducts,
+      handleDeleteVariant,
+      openStockScanner,
+      router,
+      t,
+    ]
+  );
+
+  return (
+    <>
+      <SafeAreaView style={styles.safeArea} edges={['bottom']}>
+        <FlatList
+          data={filteredProducts}
+          keyExtractor={(item) => String(item.id)}
+          renderItem={renderProductItem}
+          ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
+          ListHeaderComponent={
+            <View>
+              <Text style={styles.headerTitle}>{t('Inventory Management')}</Text>
+
+              <View style={styles.searchWrapper}>
+                <View style={styles.searchContainer}>
+                  <Ionicons name="search" size={18} color="#9ca3af" />
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder={t('Search products, variants, or barcode...')}
+                    placeholderTextColor="#9ca3af"
+                    value={searchQuery}
+                    onChangeText={(text) => {
+                      setSearchQuery(text);
+                      setShowSuggestions(text.trim().length >= 1);
+                    }}
+                    onFocus={() => {
+                      if (searchQuery.trim().length >= 1) {
+                        setShowSuggestions(true);
+                      }
+                    }}
+                    onBlur={() => {
+                      setTimeout(() => setShowSuggestions(false), 200);
+                    }}
+                    returnKeyType="search"
+                  />
+                  {searchQuery.length > 0 && (
+                    <TouchableOpacity
+                      style={styles.clearButton}
+                      onPress={() => {
+                        setSearchQuery('');
+                        setShowSuggestions(false);
+                      }}
+                    >
+                      <Ionicons name="close-circle" size={18} color="#9ca3af" />
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity style={styles.scanButton} onPress={handleOpenScanner}>
+                    <Ionicons name="scan-outline" size={20} color="#2563eb" />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.voiceButton} onPress={handleVoiceSearch}>
+                    <Ionicons name="mic-outline" size={20} color="#10b981" />
+                  </TouchableOpacity>
+                </View>
+
+                {showSuggestions && suggestions.length > 0 && (
+                  <View style={styles.suggestionsContainer}>
+                    <ScrollView
+                      style={styles.suggestionsScroll}
+                      keyboardShouldPersistTaps="handled"
+                      nestedScrollEnabled
+                    >
+                      {suggestions.map((suggestion, index) => (
+                        <TouchableOpacity
+                          key={`${suggestion.type}-${index}`}
+                          style={styles.suggestionItem}
+                          onPress={() => handleSuggestionSelect(suggestion)}
+                        >
+                          <Ionicons
+                            name={
+                              suggestion.type === 'category'
+                                ? 'folder-outline'
+                                : suggestion.type === 'variant'
+                                  ? 'list-outline'
+                                  : 'cube-outline'
+                            }
+                            size={16}
+                            color="#6b7280"
+                          />
+                          <Text style={styles.suggestionText}>{suggestion.text}</Text>
+                          <View
+                            style={[
+                              styles.suggestionBadge,
+                              suggestion.type === 'category' && styles.categoryBadge,
+                              suggestion.type === 'variant' && styles.suggestionVariantBadge,
+                            ]}
+                          >
+                            <Text style={styles.suggestionBadgeText}>
+                              {suggestion.type === 'category'
+                                ? t('Category')
+                                : suggestion.type === 'variant'
+                                  ? t('Variant')
+                                  : t('Product')}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.actionRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.filterButton,
+                    (filters.lowStockOnly || filters.hasVariantsOnly) && styles.filterButtonActive,
+                  ]}
+                  activeOpacity={0.8}
+                  onPress={() => setFilterModalVisible(true)}
+                >
+                  <Ionicons name="funnel-outline" size={16} color="#2563eb" />
+                  <Text style={styles.filterLabel}>{t('Filter')}</Text>
+                  <Ionicons name="chevron-down" size={14} color="#2563eb" />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.scanHeaderButton, styles.scanSegment]}
+                  activeOpacity={0.85}
+                  onPress={() => openProductScanner()}
+                  disabled={products.length === 0}
+                >
+                  <Ionicons name="barcode-outline" size={16} color="#047857" />
+                  <Text style={styles.scanSegmentLabel}>{t('Scan')}</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.addButton}
+                  activeOpacity={0.85}
+                  onPress={() => router.push('/modals/product-entry')}
+                >
+                  <Ionicons name="add" size={16} color="#ffffff" />
+                  <Text style={styles.addButtonLabel}>{t('Add Product')}</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.statsRow}>
+                <View style={[styles.statCard, styles.totalCard]}>
+                  <View style={styles.statTop}>
+                    <Ionicons name="cube-outline" size={16} color="#0f172a" />
+                    <Text style={styles.statLabel}>{t('Total Products')}</Text>
+                  </View>
+                  <Text style={styles.statValue}>{String(totalProducts)}</Text>
+                </View>
+                <View style={[styles.statCard, styles.valueCard]}>
+                  <View style={styles.statTop}>
+                    <Ionicons name="cash-outline" size={16} color="#047857" />
+                    <Text style={styles.statLabel}>{t('Stock Value')}</Text>
+                  </View>
+                  <Text
+                    style={[styles.statValue, styles.statValuePositive]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                  >
+                    {currencyFormatter.format(stockValue)}
+                  </Text>
+                </View>
+                <View style={[styles.statCard, styles.lowStockCard]}>
+                  <View style={styles.statTop}>
+                    <Ionicons name="warning-outline" size={16} color="#b91c1c" />
+                    <Text style={styles.statLabel}>{t('Low Stock')}</Text>
+                  </View>
+                  <Text style={[styles.statValue, styles.statValueWarning]}>
+                    {String(lowStockCount)}
+                  </Text>
+                </View>
+              </View>
+              <View style={{ height: spacing.md }} />
+            </View>
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <Ionicons name="cube-outline" size={48} color="#cbd5f5" />
+              <Text style={styles.emptyText}>{t('No products found')}</Text>
+            </View>
+          }
+          contentContainerStyle={[styles.content, { paddingBottom: contentPadding }]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          initialNumToRender={12}
+          maxToRenderPerBatch={12}
+          windowSize={8}
+          removeClippedSubviews
+        />
       </SafeAreaView>
       <Modal
         transparent
@@ -1875,13 +1966,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
     marginTop: spacing.xs,
-    maxHeight: 300,
+    maxHeight: 480,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 5,
     zIndex: 1000,
+  },
+  suggestionsScroll: {
+    maxHeight: 520,
   },
   suggestionItem: {
     flexDirection: 'row',
@@ -2776,21 +2870,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

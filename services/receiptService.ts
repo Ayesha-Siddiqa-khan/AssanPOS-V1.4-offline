@@ -53,20 +53,47 @@ function estimateThermalHeightMm(html: string, widthMm: number) {
 }
 
 function withThermalPageSize(html: string, widthMm: number, heightMm: number) {
+  const widthPx = Math.round(widthMm * 3.7795); // 1mm = ~3.78px at 96 DPI
   const pageStyle = `
+    <meta name="viewport" content="width=${widthPx}, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
-      @page { size: ${widthMm}mm ${heightMm}mm; margin: 0; }
-      html, body { width: ${widthMm}mm; margin: 0; padding: 0; }
+      @page { 
+        size: ${widthMm}mm ${heightMm}mm; 
+        margin: 0mm; 
+      }
+      * { 
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      html { 
+        width: ${widthMm}mm; 
+        height: ${heightMm}mm;
+        margin: 0; 
+        padding: 0; 
+      }
+      body { 
+        width: ${widthMm}mm; 
+        margin: 0; 
+        padding: 0;
+        overflow-x: hidden;
+      }
+      @media print {
+        html, body {
+          width: ${widthMm}mm !important;
+          margin: 0 !important;
+          padding: 0 !important;
+        }
+      }
     </style>
   `;
 
   if (html.includes('</head>')) {
     return html.replace('</head>', `${pageStyle}</head>`);
   }
-  if (html.includes('<body')) {
-    return html.replace('<body', `${pageStyle}<body`);
+  if (html.includes('<head>')) {
+    return html.replace('<head>', `<head>${pageStyle}`);
   }
-  return `${pageStyle}${html}`;
+  return `<!DOCTYPE html><html><head>${pageStyle}</head>${html}</html>`;
 }
 
 function getBleManager() {
@@ -203,12 +230,11 @@ export async function generateReceiptHtml(payload: ReceiptPayload, profile: Stor
     .map((item) => {
       const lineTotal = (item.price || 0) * (item.quantity || 0);
       return `
-        <tr>
-          <td>${item.name}</td>
-          <td style="text-align:right;">${item.quantity}</td>
-          <td style="text-align:right;">${fmt(item.price)}</td>
-          <td style="text-align:right;">${fmt(lineTotal)}</td>
-        </tr>
+        <div class="item-name">${item.name}</div>
+        <div class="item-details">
+          <span>${item.quantity} x ${fmt(item.price)}</span>
+          <span>${fmt(lineTotal)}</span>
+        </div>
       `;
     })
     .join('');
@@ -223,107 +249,186 @@ export async function generateReceiptHtml(payload: ReceiptPayload, profile: Stor
   const hasChange = Number.isFinite(payload?.changeAmount) && (payload?.changeAmount ?? 0) !== 0;
 
   return `
+    <!DOCTYPE html>
     <html>
       <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-          body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif; padding: 16px 18px; color: #111827; }
-          h2 { margin: 4px 0; text-align: center; }
-          table { width: 100%; border-collapse: collapse; margin-top: 14px; }
-          th { padding: 4px 0; font-size: 13px; text-align: left; }
-          td { padding: 3px 0; font-size: 13px; }
-          .right { text-align: right; }
-          .bold { font-weight: 700; }
-          .meta { text-align: center; font-size: 11px; color: #6b7280; margin-top: 2px; }
-          .divider { border-top: 1px dashed #d1d5db; margin: 12px 0; }
-          .total-row td { font-weight: 700; padding-top: 2px; }
-          .totals { margin-top: 6px; }
-          .footer { margin-top: 18px; text-align: center; font-size: 12px; color: #6b7280; }
-          tfoot td { font-weight: 700; padding-top: 6px; border-top: 1px solid #e5e7eb; }
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { 
+            font-family: 'Courier New', monospace; 
+            padding: 0;
+            margin: 0;
+            color: #000; 
+            font-size: 12px;
+            line-height: 1.3;
+            width: 100%;
+          }
+          .container {
+            padding: 8px;
+            width: 100%;
+          }
+          h2 { 
+            margin: 0 0 4px 0; 
+            text-align: center; 
+            font-size: 16px;
+            font-weight: bold;
+          }
+          table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin: 8px 0; 
+          }
+          td { 
+            padding: 2px 0; 
+            font-size: 12px; 
+          }
+          .meta { 
+            text-align: center; 
+            font-size: 11px; 
+            margin: 2px 0; 
+          }
+          .divider { 
+            text-align: center;
+            margin: 8px 0;
+            font-size: 12px;
+          }
+          .item-name {
+            font-weight: bold;
+            margin-bottom: 2px;
+          }
+          .item-details {
+            font-size: 11px;
+            margin-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+          }
+          .total-section {
+            margin: 8px 0;
+          }
+          .total-row { 
+            display: flex; 
+            justify-content: space-between; 
+            padding: 3px 0;
+            font-size: 12px;
+          }
+          .total-row.main { 
+            font-weight: bold; 
+            font-size: 14px;
+            padding: 5px 0;
+            border-top: 1px solid #000;
+            border-bottom: 1px solid #000;
+            margin: 4px 0;
+          }
+          .footer { 
+            margin-top: 12px; 
+            text-align: center; 
+            font-size: 11px; 
+          }
+          .info-line {
+            display: flex;
+            justify-content: space-between;
+            margin: 3px 0;
+            font-size: 11px;
+          }
+          .info-label {
+            font-weight: bold;
+          }
         </style>
       </head>
       <body>
-        <h2>${profile.name}</h2>
-        ${profile.address ? `<div class="meta">${profile.address}</div>` : ''}
-        ${profile.phone ? `<div class="meta">${profile.phone}</div>` : ''}
-        ${profile.email ? `<div class="meta">${profile.email}</div>` : ''}
-        <div class="divider"></div>
-        <div>Receipt #: ${payload.id}</div>
-        <div>Date: ${payload.createdAt}</div>
-        ${payload.customerName ? `<div>Customer: ${payload.customerName}</div>` : ''}
-        <table>
-          <thead>
-            <tr>
-              <th style="width: 58%;">Item</th>
-              <th class="right" style="width: 12%;">Qty</th>
-              <th class="right" style="width: 15%;">Price</th>
-              <th class="right" style="width: 15%;">Total</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-          <tfoot>
-            <tr>
-              <td colspan="3" class="bold">Subtotal</td>
-              <td class="right bold">${fmt(payload.subtotal)}</td>
-            </tr>
-          </tfoot>
-        </table>
+        <div class="container">
+          <h2>${profile.name}</h2>
+          ${profile.address ? `<div class="meta">${profile.address}</div>` : ''}
+          ${profile.phone ? `<div class="meta">${profile.phone}</div>` : ''}
+          ${profile.email ? `<div class="meta">${profile.email}</div>` : ''}
+          
+          <div class="divider">================================</div>
+          
+          <div class="info-line">
+            <span class="info-label">Receipt #:</span>
+            <span>${payload.id}</span>
+          </div>
+          <div class="info-line">
+            <span class="info-label">Date:</span>
+            <span>${payload.createdAt}</span>
+          </div>
+          ${payload.customerName ? `<div class="info-line">
+            <span class="info-label">Customer:</span>
+            <span>${payload.customerName}</span>
+          </div>` : ''}
+          
+          <div class="divider">================================</div>
+          
+          <div>${rows}</div>
 
-        <table class="totals">
-          <tbody>
-            <tr class="total-row">
-              <td>Tax</td>
-              <td class="right">${fmt(payload.tax)}</td>
-            </tr>
-            <tr class="total-row">
-              <td>Total</td>
-              <td class="right">${fmt(payload.total)}</td>
-            </tr>
+          <div class="divider">================================</div>
+
+          <div class="total-section">
+            <div class="total-row">
+              <span>Subtotal</span>
+              <span>${fmt(payload.subtotal)}</span>
+            </div>
+            <div class="total-row">
+              <span>Tax</span>
+              <span>${fmt(payload.tax)}</span>
+            </div>
+            <div class="total-row main">
+              <span>Total</span>
+              <span>${fmt(payload.total)}</span>
+            </div>
             ${
               hasCreditUsed
-                ? `<tr class="total-row">
-                    <td>Credit Used</td>
-                    <td class="right">${fmt(payload.creditUsed)}</td>
-                  </tr>`
+                ? `<div class="total-row">
+                    <span>Credit Used</span>
+                    <span>${fmt(payload.creditUsed)}</span>
+                  </div>`
                 : ''
             }
             ${
               hasAfterCredit
-                ? `<tr class="total-row">
-                    <td>After Credit</td>
-                    <td class="right">${fmt(payload?.amountAfterCredit ?? 0)}</td>
-                  </tr>`
+                ? `<div class="total-row">
+                    <span>After Credit</span>
+                    <span>${fmt(payload?.amountAfterCredit ?? 0)}</span>
+                  </div>`
                 : ''
             }
             ${
               hasPaid
-                ? `<tr class="total-row">
-                    <td>Paid</td>
-                    <td class="right">${fmt(payload.amountPaid)}</td>
-                  </tr>`
+                ? `<div class="total-row">
+                    <span>Paid</span>
+                    <span>${fmt(payload.amountPaid)}</span>
+                  </div>`
                 : ''
             }
             ${
               hasBalance
-                ? `<tr class="total-row">
-                    <td>Balance</td>
-                    <td class="right">${fmt(payload.remainingBalance)}</td>
-                  </tr>`
+                ? `<div class="total-row">
+                    <span>Balance</span>
+                    <span>${fmt(payload.remainingBalance)}</span>
+                  </div>`
                 : ''
             }
             ${
               hasChange
-                ? `<tr class="total-row">
-                    <td>Change</td>
-                    <td class="right">${fmt(payload.changeAmount)}</td>
-                  </tr>`
+                ? `<div class="total-row">
+                    <span>Change</span>
+                    <span>${fmt(payload.changeAmount)}</span>
+                  </div>`
                 : ''
             }
-          </tbody>
-        </table>
+          </div>
 
-        <div class="divider"></div>
-        <div>Payment Method: ${payload.paymentMethod}</div>
-        ${profile.thankYouMessage ? `<div class="footer">${profile.thankYouMessage}</div>` : ''}
+          <div class="divider">================================</div>
+          
+          <div class="info-line">
+            <span class="info-label">Payment:</span>
+            <span>${payload.paymentMethod}</span>
+          </div>
+          
+          ${profile.thankYouMessage ? `<div class="footer">${profile.thankYouMessage}</div>` : '<div class="footer">Thank you for your business!</div>'}
+        </div>
       </body>
     </html>
   `;
@@ -340,6 +445,8 @@ export async function createReceiptPdf(html: string, options?: ThermalPageOption
     width: mmToPt(widthMm),
     height: mmToPt(heightMm),
     margins: { top: 0, left: 0, right: 0, bottom: 0 },
+    orientation: 'portrait',
+    useMarkupHeight: true,
   };
 
   return Print.printToFileAsync(printOptions);
@@ -371,10 +478,11 @@ async function invokePrint(html: string, widthMm: number, heightMm: number) {
   if (typeof printer.printAsync === 'function') {
     const options: any = {
       html,
-      // Ensure the print preview honors the thermal width and zero margins
       width: mmToPt(widthMm),
       height: mmToPt(heightMm),
       margins: { top: 0, left: 0, right: 0, bottom: 0 },
+      orientation: 'portrait',
+      useMarkupHeight: true,
     };
     await printer.printAsync(options);
   } else {

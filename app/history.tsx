@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -39,7 +39,7 @@ const getTodayKey = () => {
 };
 
 export default function HistoryScreen() {
-  const { sales: rawSales } = useData();
+  const { sales: rawSales, deleteSale } = useData();
   const { t } = useLanguage();
   const { profile: shopProfile } = useShop();
   const sales = rawSales ?? [];
@@ -95,6 +95,33 @@ export default function HistoryScreen() {
       ),
     [historicalSales]
   );
+
+  const handleClearAll = () => {
+    Alert.alert(
+      t('Clear All History'),
+      t('Are you sure you want to delete all historical sales? This action cannot be undone.'),
+      [
+        {
+          text: t('Cancel'),
+          style: 'cancel',
+        },
+        {
+          text: t('Delete All'),
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              for (const sale of historicalSales) {
+                await deleteSale(sale.id);
+              }
+              Alert.alert(t('Success'), t('All historical sales have been deleted'));
+            } catch (error) {
+              Alert.alert(t('Error'), t('Failed to delete sales'));
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const buildReceiptPayload = (sale: any) => ({
     id: sale.id,
@@ -157,8 +184,20 @@ export default function HistoryScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <View style={styles.headerRow}>
-        <Text style={styles.screenTitle}>{t('Sales History')}</Text>
-        <Text style={styles.screenSubtitle}>{t('Previous days')}</Text>
+        <View>
+          <Text style={styles.screenTitle}>{t('Sales History')}</Text>
+          <Text style={styles.screenSubtitle}>{t('Previous days')}</Text>
+        </View>
+        {historicalSales.length > 0 && (
+          <TouchableOpacity
+            style={styles.clearAllButton}
+            onPress={handleClearAll}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="trash-outline" size={18} color="#ef4444" />
+            <Text style={styles.clearAllText}>{t('Clear All')}</Text>
+          </TouchableOpacity>
+        )}
       </View>
       <ScrollView contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={false}>
         {groupedSales.length === 0 ? (
@@ -298,10 +337,29 @@ const styles = StyleSheet.create({
     backgroundColor: '#f9fafb',
   },
   headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.xl,
     paddingBottom: spacing.md,
     gap: 2,
+  },
+  clearAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: '#fef2f2',
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: '#fee2e2',
+  },
+  clearAllText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#ef4444',
   },
   screenTitle: {
     ...textStyles.screenTitle,

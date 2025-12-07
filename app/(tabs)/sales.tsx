@@ -331,21 +331,6 @@ export default function SalesScreen() {
   };
 
   const printSale = async (sale: any) => {
-    if (selectedPrinter) {
-      try {
-        const text = buildPrintableText(sale);
-        await printReceiptViaBluetooth(selectedPrinter.id, text);
-        Toast.show({ type: 'success', text1: t('Receipt sent to printer') });
-        return;
-      } catch (error) {
-        console.error('Failed to print via printer', error);
-        Toast.show({ type: 'error', text1: t('Unable to print receipt') });
-      }
-    } else {
-      await openPrinterSelector();
-      return;
-    }
-
     try {
       const payload = buildReceiptPayload(sale);
       const html = await generateReceiptHtml(payload, {

@@ -178,7 +178,10 @@ export default function SettingsScreen() {
   // Printer settings state
   const [printerWidth, setPrinterWidth] = useState<'58' | '80'>('80');
   const [isPrinterModalVisible, setIsPrinterModalVisible] = useState(false);
-  const [savedPrinters, setSavedPrinters] = useState<Array<{id: string; name: string; type: string}>>([]);
+  const [isNetworkPrinterModalVisible, setIsNetworkPrinterModalVisible] = useState(false);
+  const [networkPrinterIP, setNetworkPrinterIP] = useState('');
+  const [networkPrinterName, setNetworkPrinterName] = useState('');
+  const [savedPrinters, setSavedPrinters] = useState<Array<{id: string; name: string; type: string; ip?: string}>>([]);
 
   // User management is now done through the admin panel (Supabase)
   // Disable local user management since it uses the old SQLite system
@@ -1553,6 +1556,8 @@ export default function SettingsScreen() {
                           ? t('Bluetooth Printer')
                           : printer.type === 'usb'
                           ? t('USB Printer')
+                          : printer.ip 
+                          ? `${t('Network Printer')} - ${printer.ip}`
                           : t('Network Printer')}
                       </Text>
                     </View>
@@ -2417,11 +2422,9 @@ export default function SettingsScreen() {
               style={styles.printerTypeCard}
               onPress={() => {
                 setIsPrinterModalVisible(false);
-                Alert.alert(
-                  t('Network Printer'),
-                  t('Make sure your printer is connected to the same Wi-Fi network. Enter the printer IP address when printing.'),
-                  [{ text: t('OK') }]
-                );
+                setNetworkPrinterIP('');
+                setNetworkPrinterName('');
+                setTimeout(() => setIsNetworkPrinterModalVisible(true), 300);
               }}
               activeOpacity={0.8}
             >
@@ -2439,6 +2442,102 @@ export default function SettingsScreen() {
               </Text>
             </View>
           </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Network Printer IP Modal */}
+      <Modal
+        visible={isNetworkPrinterModalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setIsNetworkPrinterModalVisible(false)}
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          <KeyboardAvoidingView
+            style={{ flex: 1 }}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <View style={styles.modalHeader}>
+              <TouchableOpacity onPress={() => setIsNetworkPrinterModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#64748b" />
+              </TouchableOpacity>
+              <Text style={styles.modalTitle}>{t('Network Printer')}</Text>
+              <View style={{ width: 24 }} />
+            </View>
+
+            <ScrollView
+              style={styles.modalContent}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingBottom: 40 }}
+            >
+              <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                <View style={styles.modalContentInner}>
+                  <View style={styles.networkPrinterInfo}>
+                    <Ionicons name="information-circle" size={24} color="#2563eb" />
+                    <Text style={styles.networkPrinterInfoText}>
+                      {t('Make sure your printer is connected to the same Wi-Fi network. Enter the printer IP address when printing.')}
+                    </Text>
+                  </View>
+
+                  <View style={styles.formGroup}>
+                    <Text style={styles.formLabel}>{t('Printer Name')}</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      value={networkPrinterName}
+                      onChangeText={setNetworkPrinterName}
+                      placeholder={t('e.g., Office Printer')}
+                      autoCapitalize="words"
+                    />
+                  </View>
+
+                  <View style={styles.formGroup}>
+                    <Text style={styles.formLabel}>{t('Network Printer IP')}</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      value={networkPrinterIP}
+                      onChangeText={setNetworkPrinterIP}
+                      placeholder="192.168.0.17"
+                      keyboardType="numeric"
+                      autoCapitalize="none"
+                    />
+                    <Text style={styles.formHint}>
+                      {t('Enter your printer\'s IP address (e.g., 192.168.1.100)')}
+                    </Text>
+                  </View>
+
+                  <Button
+                    onPress={async () => {
+                      if (!networkPrinterIP.trim()) {
+                        Alert.alert(t('Error'), t('Please enter printer IP address'));
+                        return;
+                      }
+                      
+                      const newPrinter = {
+                        id: Date.now().toString(),
+                        name: networkPrinterName.trim() || `Printer ${networkPrinterIP}`,
+                        type: 'network',
+                        ip: networkPrinterIP.trim(),
+                      };
+                      
+                      const updated = [...savedPrinters, newPrinter];
+                      setSavedPrinters(updated);
+                      await AsyncStorage.setItem('savedPrinters', JSON.stringify(updated));
+                      
+                      setIsNetworkPrinterModalVisible(false);
+                      Toast.show({
+                        type: 'success',
+                        text1: t('Network printer added'),
+                        text2: `${newPrinter.name} (${newPrinter.ip})`,
+                      });
+                    }}
+                    style={{ marginTop: 20 }}
+                  >
+                    {t('Add Printer')}
+                  </Button>
+                </View>
+              </TouchableWithoutFeedback>
+            </ScrollView>
+          </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
 
@@ -3538,5 +3637,25 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#2563eb',
+  },
+  networkPrinterInfo: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    backgroundColor: '#eff6ff',
+    padding: 16,
+    borderRadius: radii.md,
+    marginBottom: 24,
+  },
+  networkPrinterInfoText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#1e40af',
+    lineHeight: 20,
+  },
+  formHint: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 6,
   },
 });

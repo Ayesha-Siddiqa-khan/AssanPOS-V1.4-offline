@@ -266,7 +266,7 @@ export async function generateReceiptHtml(payload: ReceiptPayload, profile: Stor
             width: 100%;
           }
           .container {
-            padding: 8px;
+            padding: 2px 8px 8px 8px;
             width: 100%;
           }
           h2 { 
@@ -445,6 +445,7 @@ export async function createReceiptPdf(html: string, options?: ThermalPageOption
     width: mmToPt(widthMm),
     height: mmToPt(heightMm),
     margins: { top: 0, left: 0, right: 0, bottom: 0 },
+    printerMargins: { top: 0, left: 0, right: 0, bottom: 0 },
     orientation: 'portrait',
     useMarkupHeight: true,
   };
@@ -481,6 +482,7 @@ async function invokePrint(html: string, widthMm: number, heightMm: number) {
       width: mmToPt(widthMm),
       height: mmToPt(heightMm),
       margins: { top: 0, left: 0, right: 0, bottom: 0 },
+      printerMargins: { top: 0, left: 0, right: 0, bottom: 0 },
       orientation: 'portrait',
       useMarkupHeight: true,
     };

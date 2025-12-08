@@ -331,17 +331,54 @@ export default function SalesScreen() {
   };
 
   const printSale = async (sale: any) => {
-    try {
-      const payload = buildReceiptPayload(sale);
-      const html = await generateReceiptHtml(payload, {
-        name: storeName,
-        thankYouMessage: t('Thank you for your business!'),
-      });
-      await openPrintPreview(html);
-    } catch (error) {
-      console.error('Failed to print receipt', error);
-      Toast.show({ type: 'error', text1: t('Unable to print receipt') });
-    }
+    Alert.alert(
+      t('Print Receipt'),
+      t('Choose printing method'),
+      [
+        {
+          text: t('Cancel'),
+          style: 'cancel',
+        },
+        {
+          text: t('System Print'),
+          onPress: async () => {
+            try {
+              const payload = buildReceiptPayload(sale);
+              const html = await generateReceiptHtml(payload, {
+                name: storeName,
+                thankYouMessage: t('Thank you for your business!'),
+              });
+              await openPrintPreview(html);
+            } catch (error) {
+              console.error('Failed to print receipt', error);
+              Toast.show({ type: 'error', text1: t('Unable to print receipt') });
+            }
+          },
+        },
+        {
+          text: t('Share PDF'),
+          onPress: async () => {
+            try {
+              const payload = buildReceiptPayload(sale);
+              const html = await generateReceiptHtml(payload, {
+                name: storeName,
+                thankYouMessage: t('Thank you for your business!'),
+              });
+              const pdf = await createReceiptPdf(html);
+              await shareReceipt(pdf.uri);
+              Toast.show({ 
+                type: 'success', 
+                text1: t('PDF ready'), 
+                text2: t('Share to your printer app') 
+              });
+            } catch (error) {
+              console.error('Failed to create PDF', error);
+              Toast.show({ type: 'error', text1: t('Unable to create PDF') });
+            }
+          },
+        },
+      ]
+    );
   };
 
   const confirmDeleteSale = (saleId: number) => {

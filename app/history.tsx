@@ -173,12 +173,49 @@ export default function HistoryScreen() {
   };
 
   const handlePrintSale = async (sale: any) => {
-    const payload = buildReceiptPayload(sale);
-    const html = await generateReceiptHtml(payload, {
-      name: storeName,
-      thankYouMessage: t('Thank you for your business!'),
-    });
-    await openPrintPreview(html);
+    Alert.alert(
+      t('Print Receipt'),
+      t('Choose printing method'),
+      [
+        {
+          text: t('Cancel'),
+          style: 'cancel',
+        },
+        {
+          text: t('System Print'),
+          onPress: async () => {
+            try {
+              const payload = buildReceiptPayload(sale);
+              const html = await generateReceiptHtml(payload, {
+                name: storeName,
+                thankYouMessage: t('Thank you for your business!'),
+              });
+              await openPrintPreview(html);
+            } catch (error) {
+              console.error('Failed to print receipt', error);
+              Alert.alert(t('Error'), t('Unable to print receipt'));
+            }
+          },
+        },
+        {
+          text: t('Share PDF'),
+          onPress: async () => {
+            try {
+              const payload = buildReceiptPayload(sale);
+              const html = await generateReceiptHtml(payload, {
+                name: storeName,
+                thankYouMessage: t('Thank you for your business!'),
+              });
+              const pdf = await createReceiptPdf(html);
+              await shareReceipt(pdf.uri);
+            } catch (error) {
+              console.error('Failed to create PDF', error);
+              Alert.alert(t('Error'), t('Unable to create PDF'));
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (

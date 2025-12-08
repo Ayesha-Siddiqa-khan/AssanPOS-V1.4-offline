@@ -1596,54 +1596,106 @@ export default function SettingsScreen() {
             <TouchableOpacity
               style={styles.testPrintButton}
               onPress={async () => {
-                try {
-                  const { generateReceiptHtml, createReceiptPdf, openPrintPreview } = await import('../../services/receiptService');
-                  
-                  // Create test receipt data
-                  const testPayload = {
-                    id: 'TEST-' + Date.now(),
-                    customerName: t('Test Customer'),
-                    subtotal: 100,
-                    tax: 0,
-                    total: 100,
-                    paymentMethod: t('Cash'),
-                    createdAt: new Date().toLocaleString(),
-                    lineItems: [
-                      { name: t('Test Item 1'), quantity: 2, price: 25 },
-                      { name: t('Test Item 2'), quantity: 1, price: 50 },
-                    ],
-                    amountPaid: 100,
-                    changeAmount: 0,
-                    remainingBalance: 0,
-                  };
+                Alert.alert(
+                  t('Test Print'),
+                  t('Choose printing method'),
+                  [
+                    {
+                      text: t('Cancel'),
+                      style: 'cancel',
+                    },
+                    {
+                      text: t('System Print'),
+                      onPress: async () => {
+                        try {
+                          const { generateReceiptHtml, openPrintPreview } = await import('../../services/receiptService');
+                          
+                          const testPayload = {
+                            id: 'TEST-' + Date.now(),
+                            customerName: t('Test Customer'),
+                            subtotal: 100,
+                            tax: 0,
+                            total: 100,
+                            paymentMethod: t('Cash'),
+                            createdAt: new Date().toLocaleString(),
+                            lineItems: [
+                              { name: t('Test Item 1'), quantity: 2, price: 25 },
+                              { name: t('Test Item 2'), quantity: 1, price: 50 },
+                            ],
+                            amountPaid: 100,
+                            changeAmount: 0,
+                            remainingBalance: 0,
+                          };
 
-                  const storeProfile = {
-                    name: shopProfile?.shopName || t('Your Store'),
-                    address: t('Test Address'),
-                    phone: shopProfile?.phoneNumber || '123-456-7890',
-                    thankYouMessage: t('Thank you for your business!'),
-                  };
+                          const storeProfile = {
+                            name: shopProfile?.shopName || t('Your Store'),
+                            address: shopProfile?.address || t('Test Address'),
+                            phone: shopProfile?.phoneNumber || '123-456-7890',
+                            thankYouMessage: t('Thank you for your business!'),
+                          };
 
-                  Toast.show({
-                    type: 'info',
-                    text1: t('Generating test receipt...'),
-                  });
+                          const html = await generateReceiptHtml(testPayload, storeProfile);
+                          const widthMm = printerWidth === '58' ? 58 : 80;
+                          await openPrintPreview(html, { widthMm });
+                        } catch (error) {
+                          console.error('Test print failed:', error);
+                          Alert.alert(t('Error'), t('Could not generate test receipt'));
+                        }
+                      },
+                    },
+                    {
+                      text: t('Share PDF'),
+                      onPress: async () => {
+                        try {
+                          const { generateReceiptHtml, createReceiptPdf, shareReceipt } = await import('../../services/receiptService');
+                          
+                          const testPayload = {
+                            id: 'TEST-' + Date.now(),
+                            customerName: t('Test Customer'),
+                            subtotal: 100,
+                            tax: 0,
+                            total: 100,
+                            paymentMethod: t('Cash'),
+                            createdAt: new Date().toLocaleString(),
+                            lineItems: [
+                              { name: t('Test Item 1'), quantity: 2, price: 25 },
+                              { name: t('Test Item 2'), quantity: 1, price: 50 },
+                            ],
+                            amountPaid: 100,
+                            changeAmount: 0,
+                            remainingBalance: 0,
+                          };
 
-                  const html = await generateReceiptHtml(testPayload, storeProfile);
-                  const widthMm = printerWidth === '58' ? 58 : 80;
-                  await openPrintPreview(html, { widthMm });
+                          const storeProfile = {
+                            name: shopProfile?.shopName || t('Your Store'),
+                            address: shopProfile?.address || t('Test Address'),
+                            phone: shopProfile?.phoneNumber || '123-456-7890',
+                            thankYouMessage: t('Thank you for your business!'),
+                          };
 
-                  Toast.show({
-                    type: 'success',
-                    text1: t('Test receipt ready to print'),
-                  });
-                } catch (error) {
-                  console.error('Test print failed:', error);
-                  Alert.alert(
-                    t('Test Print Failed'),
-                    t('Could not generate test receipt. Please try again.')
-                  );
-                }
+                          Toast.show({
+                            type: 'info',
+                            text1: t('Generating test PDF...'),
+                          });
+
+                          const html = await generateReceiptHtml(testPayload, storeProfile);
+                          const widthMm = printerWidth === '58' ? 58 : 80;
+                          const pdf = await createReceiptPdf(html, { widthMm });
+                          await shareReceipt(pdf.uri);
+
+                          Toast.show({
+                            type: 'success',
+                            text1: t('Test PDF ready'),
+                            text2: t('Share to your Bixolon printer app'),
+                          });
+                        } catch (error) {
+                          console.error('Test PDF failed:', error);
+                          Alert.alert(t('Error'), t('Could not create test PDF'));
+                        }
+                      },
+                    },
+                  ]
+                );
               }}
               activeOpacity={0.8}
             >

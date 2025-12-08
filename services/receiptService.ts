@@ -54,12 +54,25 @@ function estimateThermalHeightMm(html: string, widthMm: number) {
 
 function withThermalPageSize(html: string, widthMm: number, heightMm: number) {
   const widthPx = Math.round(widthMm * 3.7795); // 1mm = ~3.78px at 96 DPI
+  const widthInches = (widthMm / 25.4).toFixed(2);
+  const heightInches = (heightMm / 25.4).toFixed(2);
+  
   const pageStyle = `
     <meta name="viewport" content="width=${widthPx}, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
       @page { 
         size: ${widthMm}mm ${heightMm}mm; 
-        margin: 0mm; 
+        margin: 0mm;
+      }
+      @page :first {
+        size: ${widthMm}mm ${heightMm}mm;
+        margin: 0mm;
+      }
+      @media print {
+        @page {
+          size: ${widthInches}in ${heightInches}in;
+          margin: 0;
+        }
       }
       * { 
         -webkit-print-color-adjust: exact !important;
@@ -254,6 +267,7 @@ export async function generateReceiptHtml(payload: ReceiptPayload, profile: Stor
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Receipt #${payload.id} - Thermal ${80}mm</title>
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body { 

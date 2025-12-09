@@ -172,49 +172,130 @@ export default function HistoryScreen() {
     await shareReceipt(pdf.uri);
   };
 
+  const printToNetworkPrinter = async (sale: any, printer: any) => {
+    try {
+      Toast.show({
+        type: 'info',
+        text1: t('Printing...'),
+        text2: `${printer.name} (${printer.ip})`,
+      });
+
+      const { printerService } = await import('../services/escPosPrinterService');
+      
+      const receiptData = {
+        storeName: storeName,
+        saleId: sale.id,
+        date: formatDateForDisplay(sale.date),
+        time: formatTimeForDisplay(sale.time),
+        customerName: sale.customer?.name || t('Walk-in Customer'),
+        items: (sale.cart || []).map((item: any) => ({
+          name: item.variantName ? `${item.name} - ${item.variantName}` : item.name,
+          quantity: item.quantity,
+          price: item.price,
+          total: item.quantity * item.price,
+        })),
+        subtotal: sale.subtotal || sale.total || 0,
+        discount: sale.discount || 0,
+        total: sale.total || 0,
+        amountPaid: sale.paidAmount || 0,
+        changeAmount: sale.changeAmount || 0,
+        paymentMethod: sale.paymentMethod || 'Cash',
+        remainingBalance: sale.remainingBalance || 0,
+      };
+
+      const result = await printerService.printReceipt(printer, receiptData);
+
+      if (result.success) {
+        Toast.show({
+          type: 'success',
+          text1: t('Print sent successfully'),
+          text2: t('Check printer for receipt'),
+        });
+      } else {
+        Alert.alert(
+          t('Print Failed'),
+          `${result.message}\n\n${t('Check printer connection and try again')}`,
+          [{ text: t('OK') }]
+        );
+      }
+    } catch (error: any) {
+      console.error('Network print error:', error);
+      Alert.alert(t('Error'), error.message || t('Failed to print'));
+    }
+  };
+
   const handlePrintSale = async (sale: any) => {
+    const savedPrintersJson = await AsyncStorage.getItem('savedPrinters');
+    const savedPrinters = savedPrintersJson ? JSON.parse(savedPrintersJson) : [];
+    const networkPrinters = savedPrinters.filter((p: any) => p.type === 'network');
+    
+    const buttons: any[] = [
+      {
+        text: t('Cancel'),
+        style: 'cancel',
+      },
+      {
+        text: t('System Print'),
+        onPress: async () => {
+          try {
+            const payload = buildReceiptPayload(sale);
+            const html = await generateReceiptHtml(payload, {
+              name: storeName,
+              thankYouMessage: t('Thank you for your business!'),
+            });
+            await openPrintPreview(html);
+          } catch (error) {
+            console.error('Failed to print receipt', error);
+            Alert.alert(t('Error'), t('Unable to print receipt'));
+          }
+        },
+      },
+      {
+        text: t('Share PDF'),
+        onPress: async () => {
+          try {
+            const payload = buildReceiptPayload(sale);
+            const html = await generateReceiptHtml(payload, {
+              name: storeName,
+              thankYouMessage: t('Thank you for your business!'),
+            });
+            const pdf = await createReceiptPdf(html);
+            await shareReceipt(pdf.uri);
+          } catch (error) {
+            console.error('Failed to create PDF', error);
+            Alert.alert(t('Error'), t('Unable to create PDF'));
+          }
+        },
+      },
+    ];
+    
+    if (networkPrinters.length > 0) {
+      buttons.splice(1, 0, {
+        text: t('Network Printer'),
+        onPress: async () => {
+          if (networkPrinters.length > 1) {
+            Alert.alert(
+              t('Select Printer'),
+              t('Choose a network printer'),
+              [
+                ...networkPrinters.map((printer: any) => ({
+                  text: `${printer.name} (${printer.ip})`,
+                  onPress: () => printToNetworkPrinter(sale, printer),
+                })),
+                { text: t('Cancel'), style: 'cancel' },
+              ]
+            );
+          } else {
+            printToNetworkPrinter(sale, networkPrinters[0]);
+          }
+        },
+      });
+    }
+    
     Alert.alert(
       t('Print Receipt'),
       t('Choose printing method'),
-      [
-        {
-          text: t('Cancel'),
-          style: 'cancel',
-        },
-        {
-          text: t('System Print'),
-          onPress: async () => {
-            try {
-              const payload = buildReceiptPayload(sale);
-              const html = await generateReceiptHtml(payload, {
-                name: storeName,
-                thankYouMessage: t('Thank you for your business!'),
-              });
-              await openPrintPreview(html);
-            } catch (error) {
-              console.error('Failed to print receipt', error);
-              Alert.alert(t('Error'), t('Unable to print receipt'));
-            }
-          },
-        },
-        {
-          text: t('Share PDF'),
-          onPress: async () => {
-            try {
-              const payload = buildReceiptPayload(sale);
-              const html = await generateReceiptHtml(payload, {
-                name: storeName,
-                thankYouMessage: t('Thank you for your business!'),
-              });
-              const pdf = await createReceiptPdf(html);
-              await shareReceipt(pdf.uri);
-            } catch (error) {
-              console.error('Failed to create PDF', error);
-              Alert.alert(t('Error'), t('Unable to create PDF'));
-            }
-          },
-        },
-      ]
+      buttons
     );
   };
 

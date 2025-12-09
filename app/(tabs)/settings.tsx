@@ -180,8 +180,18 @@ export default function SettingsScreen() {
   const [isPrinterModalVisible, setIsPrinterModalVisible] = useState(false);
   const [isNetworkPrinterModalVisible, setIsNetworkPrinterModalVisible] = useState(false);
   const [networkPrinterIP, setNetworkPrinterIP] = useState('');
+  const [networkPrinterPort, setNetworkPrinterPort] = useState('9100');
   const [networkPrinterName, setNetworkPrinterName] = useState('');
-  const [savedPrinters, setSavedPrinters] = useState<Array<{id: string; name: string; type: string; ip?: string}>>([]);
+  const [editingPrinter, setEditingPrinter] = useState<any>(null);
+  const [savedPrinters, setSavedPrinters] = useState<Array<{
+    id: string;
+    name: string;
+    type: string;
+    ip?: string;
+    port?: number;
+    paperWidthMM?: 58 | 80;
+    isDefault?: boolean;
+  }>>([]);
 
   // User management is now done through the admin panel (Supabase)
   // Disable local user management since it uses the old SQLite system
@@ -1556,37 +1566,55 @@ export default function SettingsScreen() {
                           ? t('Bluetooth Printer')
                           : printer.type === 'usb'
                           ? t('USB Printer')
-                          : printer.ip 
-                          ? `${t('Network Printer')} - ${printer.ip}`
-                          : t('Network Printer')}
+                          : `${t('Network')} - ${printer.ip}:${printer.port || 9100} (${printer.paperWidthMM || 80}mm)`}
                       </Text>
+                      {printer.isDefault && (
+                        <Text style={styles.printerItemDefault}>★ {t('Default')}</Text>
+                      )}
                     </View>
-                    <TouchableOpacity
-                      onPress={() => {
-                        Alert.alert(
-                          t('Remove Printer'),
-                          t('Remove this printer from saved devices?'),
-                          [
-                            { text: t('Cancel'), style: 'cancel' },
-                            {
-                              text: t('Remove'),
-                              style: 'destructive',
-                              onPress: async () => {
-                                const updated = savedPrinters.filter((p) => p.id !== printer.id);
-                                setSavedPrinters(updated);
-                                await AsyncStorage.setItem('savedPrinters', JSON.stringify(updated));
-                                Toast.show({
-                                  type: 'success',
-                                  text1: t('Printer removed'),
-                                });
+                    <View style={styles.printerItemActions}>
+                      {printer.type === 'network' && (
+                        <TouchableOpacity
+                          onPress={() => {
+                            setEditingPrinter(printer);
+                            setNetworkPrinterName(printer.name);
+                            setNetworkPrinterIP(printer.ip || '');
+                            setNetworkPrinterPort(printer.port?.toString() || '9100');
+                            setPrinterWidth(printer.paperWidthMM === 58 ? '58' : '80');
+                            setIsNetworkPrinterModalVisible(true);
+                          }}
+                          style={{ marginRight: 12 }}
+                        >
+                          <Ionicons name="create-outline" size={20} color="#2563eb" />
+                        </TouchableOpacity>
+                      )}
+                      <TouchableOpacity
+                        onPress={() => {
+                          Alert.alert(
+                            t('Remove Printer'),
+                            t('Remove this printer from saved devices?'),
+                            [
+                              { text: t('Cancel'), style: 'cancel' },
+                              {
+                                text: t('Remove'),
+                                style: 'destructive',
+                                onPress: async () => {
+                                  const updated = savedPrinters.filter((p) => p.id !== printer.id);
+                                  setSavedPrinters(updated);
+                                  await AsyncStorage.setItem('savedPrinters', JSON.stringify(updated));
+                                  Toast.show({
+                                    type: 'success',
+                                    text1: t('Printer removed'),
+                                  });
+                                },
                               },
-                            },
-                          ]
-                        );
-                      }}
-                    >
-                      <Ionicons name="trash-outline" size={20} color="#ef4444" />
-                    </TouchableOpacity>
+                            ]
+                          );
+                        }}
+                      >
+                        <Ionicons name="trash-outline" size={20} color="#ef4444" />
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 ))}
               </View>
@@ -2527,7 +2555,7 @@ export default function SettingsScreen() {
                   <View style={styles.networkPrinterInfo}>
                     <Ionicons name="information-circle" size={24} color="#2563eb" />
                     <Text style={styles.networkPrinterInfoText}>
-                      {t('Make sure your printer is connected to the same Wi-Fi network. Enter the printer IP address when printing.')}
+                      {t('Connect ESC/POS thermal printer via LAN. Printer must be on same Wi-Fi network.')}
                     </Text>
                   </View>
 
@@ -2537,25 +2565,129 @@ export default function SettingsScreen() {
                       style={styles.formInput}
                       value={networkPrinterName}
                       onChangeText={setNetworkPrinterName}
-                      placeholder={t('e.g., Office Printer')}
+                      placeholder={t('e.g., Bixolon SRP-352')}
                       autoCapitalize="words"
                     />
                   </View>
 
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>{t('Network Printer IP')}</Text>
+                    <Text style={styles.formLabel}>{t('IP Address')}</Text>
                     <TextInput
                       style={styles.formInput}
                       value={networkPrinterIP}
                       onChangeText={setNetworkPrinterIP}
-                      placeholder="192.168.0.17"
+                      placeholder="192.168.100.243"
                       keyboardType="numeric"
                       autoCapitalize="none"
                     />
                     <Text style={styles.formHint}>
-                      {t('Enter your printer\'s IP address (e.g., 192.168.1.100)')}
+                      {t('Find IP on printer configuration page')}
                     </Text>
                   </View>
+
+                  <View style={styles.formGroup}>
+                    <Text style={styles.formLabel}>{t('Port')}</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      value={networkPrinterPort}
+                      onChangeText={setNetworkPrinterPort}
+                      placeholder="9100"
+                      keyboardType="numeric"
+                    />
+                    <Text style={styles.formHint}>
+                      {t('Default ESC/POS port is 9100')}
+                    </Text>
+                  </View>
+
+                  <View style={styles.formGroup}>
+                    <Text style={styles.formLabel}>{t('Paper Width')}</Text>
+                    <View style={styles.printerWidthButtons}>
+                      <TouchableOpacity
+                        style={[
+                          styles.printerWidthButton,
+                          printerWidth === '58' && styles.printerWidthButtonActive,
+                        ]}
+                        onPress={() => setPrinterWidth('58')}
+                        activeOpacity={0.7}
+                      >
+                        <Text
+                          style={[
+                            styles.printerWidthText,
+                            printerWidth === '58' && styles.printerWidthTextActive,
+                          ]}
+                        >
+                          58mm
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.printerWidthButton,
+                          printerWidth === '80' && styles.printerWidthButtonActive,
+                        ]}
+                        onPress={() => setPrinterWidth('80')}
+                        activeOpacity={0.7}
+                      >
+                        <Text
+                          style={[
+                            styles.printerWidthText,
+                            printerWidth === '80' && styles.printerWidthTextActive,
+                          ]}
+                        >
+                          80mm
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  <Button
+                    variant="outline"
+                    onPress={async () => {
+                      if (!networkPrinterIP.trim()) {
+                        Alert.alert(t('Error'), t('Please enter printer IP address'));
+                        return;
+                      }
+                      
+                      try {
+                        const { printerService } = await import('../../services/escPosPrinterService');
+                        const config = {
+                          id: Date.now().toString(),
+                          name: networkPrinterName.trim() || 'Network Printer',
+                          type: 'ESC_POS' as const,
+                          ip: networkPrinterIP.trim(),
+                          port: parseInt(networkPrinterPort) || 9100,
+                          paperWidthMM: (printerWidth === '58' ? 58 : 80) as 58 | 80,
+                          isDefault: false,
+                        };
+                        
+                        Toast.show({
+                          type: 'info',
+                          text1: t('Testing printer connection...'),
+                        });
+                        
+                        const result = await printerService.testPrint(config);
+                        
+                        if (result.success) {
+                          Alert.alert(
+                            t('Success'),
+                            t('Test print sent! Check if printer printed correctly.'),
+                            [{ text: t('OK') }]
+                          );
+                        } else {
+                          Alert.alert(
+                            t('Connection Failed'),
+                            `${result.message}\n\n${t('Check: 1) Printer is on, 2) IP is correct, 3) Same Wi-Fi network')}`,
+                            [{ text: t('OK') }]
+                          );
+                        }
+                      } catch (error: any) {
+                        Alert.alert(t('Error'), error.message || t('Test print failed'));
+                      }
+                    }}
+                    style={{ marginTop: 12 }}
+                  >
+                    <Ionicons name="print-outline" size={16} color="#2563eb" style={{ marginRight: 8 }} />
+                    {t('Test Print')}
+                  </Button>
 
                   <Button
                     onPress={async () => {
@@ -2565,26 +2697,33 @@ export default function SettingsScreen() {
                       }
                       
                       const newPrinter = {
-                        id: Date.now().toString(),
+                        id: editingPrinter?.id || Date.now().toString(),
                         name: networkPrinterName.trim() || `Printer ${networkPrinterIP}`,
                         type: 'network',
                         ip: networkPrinterIP.trim(),
+                        port: parseInt(networkPrinterPort) || 9100,
+                        paperWidthMM: (printerWidth === '58' ? 58 : 80) as 58 | 80,
+                        isDefault: savedPrinters.length === 0,
                       };
                       
-                      const updated = [...savedPrinters, newPrinter];
+                      const updated = editingPrinter
+                        ? savedPrinters.map(p => p.id === editingPrinter.id ? newPrinter : p)
+                        : [...savedPrinters, newPrinter];
+                      
                       setSavedPrinters(updated);
                       await AsyncStorage.setItem('savedPrinters', JSON.stringify(updated));
                       
                       setIsNetworkPrinterModalVisible(false);
+                      setEditingPrinter(null);
                       Toast.show({
                         type: 'success',
-                        text1: t('Network printer added'),
-                        text2: `${newPrinter.name} (${newPrinter.ip})`,
+                        text1: t('Network printer saved'),
+                        text2: `${newPrinter.name} (${newPrinter.ip}:${newPrinter.port})`,
                       });
                     }}
                     style={{ marginTop: 20 }}
                   >
-                    {t('Add Printer')}
+                    {editingPrinter ? t('Update Printer') : t('Add Printer')}
                   </Button>
                 </View>
               </TouchableWithoutFeedback>
@@ -3611,6 +3750,16 @@ const styles = StyleSheet.create({
   printerItemType: {
     fontSize: 12,
     color: '#64748b',
+  },
+  printerItemDefault: {
+    fontSize: 11,
+    color: '#f59e0b',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  printerItemActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   printerModalContent: {
     flex: 1,

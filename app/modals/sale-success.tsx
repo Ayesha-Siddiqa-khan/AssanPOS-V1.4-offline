@@ -1,8 +1,9 @@
 ﻿import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Modal, TextInput, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Modal, TextInput, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useData } from '../../contexts/DataContext';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -247,6 +248,66 @@ export default function SaleSuccessModal() {
     }
   };
 
+  const handleNetworkPrint = async () => {
+    try {
+      const savedPrintersJson = await AsyncStorage.getItem('savedPrinters');
+      const savedPrinters = savedPrintersJson ? JSON.parse(savedPrintersJson) : [];
+      const networkPrinters = savedPrinters.filter((p: any) => p.type === 'network');
+      
+      if (networkPrinters.length === 0) {
+        Alert.alert(
+          t('No Network Printers'),
+          t('Add a network printer in Settings first'),
+          [{ text: t('OK') }]
+        );
+        return;
+      }
+      
+      const selectPrinter = async (printer: any) => {
+        try {
+          Toast.show({
+            type: 'info',
+            text1: t('Printing...'),
+            text2: `${printer.name}`,
+          });
+          
+          const { printerService } = await import('../../services/escPosPrinterService');
+          const result = await printerService.printReceipt(printer, receiptPayload.receipt);
+          
+          if (result.success) {
+            Toast.show({
+              type: 'success',
+              text1: t('Receipt printed successfully'),
+            });
+          } else {
+            Alert.alert(t('Print Failed'), result.message);
+          }
+        } catch (error: any) {
+          Alert.alert(t('Error'), error.message || t('Failed to print'));
+        }
+      };
+      
+      if (networkPrinters.length === 1) {
+        selectPrinter(networkPrinters[0]);
+      } else {
+        Alert.alert(
+          t('Select Printer'),
+          t('Choose a network printer'),
+          [
+            ...networkPrinters.map((printer: any) => ({
+              text: `${printer.name} (${printer.ip})`,
+              onPress: () => selectPrinter(printer),
+            })),
+            { text: t('Cancel'), style: 'cancel' },
+          ]
+        );
+      }
+    } catch (error) {
+      console.error('Network print error:', error);
+      Toast.show({ type: 'error', text1: t('Failed to print') });
+    }
+  };
+
   const handleSendEmail = async () => {
     if (!emailAddress.trim()) {
       Toast.show({ type: 'info', text1: t('Enter an email address') });
@@ -391,20 +452,31 @@ export default function SaleSuccessModal() {
         <View style={styles.actionStack}>
           <Button
             style={[styles.actionButton, styles.primaryAction]}
+            onPress={handleNetworkPrint}
+          >
+            <Ionicons name="print-outline" size={18} color="#ffffff" style={styles.actionIcon} />
+            <Text style={styles.primaryActionLabel}>
+              {t('Network Printer')}
+            </Text>
+          </Button>
+
+          <Button
+            variant="outline"
+            style={styles.actionButton}
             onPress={handleOpenPrinterModal}
             disabled={isScanningPrinters || isPrinting}
           >
             {isScanningPrinters || isPrinting ? (
-              <ActivityIndicator size="small" color="#ffffff" />
+              <ActivityIndicator size="small" color="#2563eb" />
             ) : (
-              <Ionicons name="print-outline" size={18} color="#ffffff" style={styles.actionIcon} />
+              <Ionicons name="bluetooth-outline" size={18} color="#2563eb" style={styles.actionIcon} />
             )}
-            <Text style={styles.primaryActionLabel}>
+            <Text style={styles.outlineActionLabel}>
               {isPrinting
                 ? t('Printing...')
                 : isScanningPrinters
-                ? t('Scanning printers...')
-                : t('Print receipt')}
+                ? t('Scanning...')
+                : t('Bluetooth')}
             </Text>
           </Button>
 

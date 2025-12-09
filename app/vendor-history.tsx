@@ -1,8 +1,10 @@
 ﻿import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Toast from 'react-native-toast-message';
 
 import { useData } from '../contexts/DataContext';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -16,7 +18,7 @@ import {
   type ReceiptPayload,
   type StoreProfile,
 } from '../services/receiptService';
-import { formatTimeForDisplay } from '../lib/date';
+import { formatTimeForDisplay, formatDateForDisplay } from '../lib/date';
 
 const formatCurrency = (value: number | null | undefined) => {
   const amount = Number(value);
@@ -337,14 +339,105 @@ export default function VendorPurchaseHistoryScreen() {
     }
   };
 
-  const handlePrintPurchase = async (purchase: any) => {
+  const printPurchaseToNetworkPrinter = async (purchase: any, printer: any) => {
     try {
-      const { receipt, store } = buildReceiptPayload(purchase);
-      const html = await generateReceiptHtml(receipt, store);
-      await openPrintPreview(html);
-    } catch (error) {
-      console.error('Failed to print purchase', error);
+      Toast.show({
+        type: 'info',
+        text1: t('Printing...'),
+        text2: `${printer.name} (${printer.ip})`,
+      });
+
+      const { printerService } = await import('../services/escPosPrinterService');
+      
+      const receiptData = {
+        storeName: storeName,
+        saleId: purchase.id,
+        date: formatDateForDisplay(purchase.date),
+        time: formatTimeForDisplay(purchase.time),
+        customerName: purchase.vendor?.name || t('Vendor Purchase'),
+        items: (purchase.items || []).map((item: any) => ({
+          name: item.variantName ? `${item.name} - ${item.variantName}` : item.name,
+          quantity: item.quantity,
+          price: item.price,
+          total: item.quantity * item.price,
+        })),
+        subtotal: purchase.total || 0,
+        discount: 0,
+        total: purchase.total || 0,
+        amountPaid: purchase.paidAmount || 0,
+        changeAmount: 0,
+        paymentMethod: purchase.paymentMethod || 'Cash',
+        remainingBalance: purchase.remainingBalance || 0,
+      };
+
+      const result = await printerService.printReceipt(printer, receiptData);
+
+      if (result.success) {
+        Toast.show({
+          type: 'success',
+          text1: t('Print sent successfully'),
+        });
+      } else {
+        Alert.alert(t('Print Failed'), result.message);
+      }
+    } catch (error: any) {
+      console.error('Network print error:', error);
+      Alert.alert(t('Error'), error.message || t('Failed to print'));
     }
+  };
+
+  const handlePrintPurchase = async (purchase: any) => {
+    const savedPrintersJson = await AsyncStorage.getItem('savedPrinters');
+    const savedPrinters = savedPrintersJson ? JSON.parse(savedPrintersJson) : [];
+    const networkPrinters = savedPrinters.filter((p: any) => p.type === 'network');
+    
+    const buttons: any[] = [
+      {
+        text: t('Cancel'),
+        style: 'cancel',
+      },
+      {
+        text: t('System Print'),
+        onPress: async () => {
+          try {
+            const { receipt, store } = buildReceiptPayload(purchase);
+            const html = await generateReceiptHtml(receipt, store);
+            await openPrintPreview(html);
+          } catch (error) {
+            console.error('Failed to print purchase', error);
+          }
+        },
+      },
+    ];
+    
+    if (networkPrinters.length > 0) {
+      buttons.splice(1, 0, {
+        text: t('Network Printer'),
+        onPress: async () => {
+          if (networkPrinters.length > 1) {
+            Alert.alert(
+              t('Select Printer'),
+              t('Choose a network printer'),
+              [
+                ...networkPrinters.map((printer: any) => ({
+                  text: `${printer.name} (${printer.ip})`,
+                  onPress: () => printPurchaseToNetworkPrinter(purchase, printer),
+                })),
+                { text: t('Cancel'), style: 'cancel' },
+              ]
+            );
+          } else {
+            printPurchaseToNetworkPrinter(purchase, networkPrinters[0]);
+          }
+        },
+      });
+    }
+    
+    Alert.alert(
+      t('Print Receipt'),
+      t('Choose printing method'),
+      buttons
+    );
   };
 
   return (

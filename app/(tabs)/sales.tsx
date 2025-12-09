@@ -330,54 +330,154 @@ export default function SalesScreen() {
     }
   };
 
+  const printToNetworkPrinter = async (sale: any, printer: any) => {
+    try {
+      Toast.show({
+        type: 'info',
+        text1: t('Printing...'),
+        text2: `${printer.name} (${printer.ip})`,
+      });
+
+      const { printerService } = await import('../../services/escPosPrinterService');
+      
+      // Build receipt data
+      const receiptData = {
+        storeName: storeName,
+        saleId: sale.id,
+        date: formatDateForDisplay(sale.date),
+        time: formatTimeForDisplay(sale.time),
+        customerName: sale.customer?.name || t('Walk-in Customer'),
+        items: (sale.cart || []).map((item: any) => ({
+          name: item.variantName ? `${item.name} - ${item.variantName}` : item.name,
+          quantity: item.quantity,
+          price: item.price,
+          total: item.quantity * item.price,
+        })),
+        subtotal: sale.subtotal || sale.total || 0,
+        discount: sale.discount || 0,
+        total: sale.total || 0,
+        amountPaid: sale.paidAmount || 0,
+        changeAmount: sale.changeAmount || 0,
+        paymentMethod: sale.paymentMethod || 'Cash',
+        remainingBalance: sale.remainingBalance || 0,
+      };
+
+      const result = await printerService.printReceipt(printer, receiptData);
+
+      if (result.success) {
+        Toast.show({
+          type: 'success',
+          text1: t('Print sent successfully'),
+          text2: t('Check printer for receipt'),
+        });
+      } else {
+        Alert.alert(
+          t('Print Failed'),
+          `${result.message}\n\n${t('Suggestions')}:\n• ${t('Check printer is on')}\n• ${t('Verify IP address')}\n• ${t('Ensure same Wi-Fi network')}`,
+          [
+            { text: t('OK') },
+            {
+              text: t('Test Printer'),
+              onPress: async () => {
+                const testResult = await printerService.testPrint(printer);
+                Alert.alert(
+                  testResult.success ? t('Success') : t('Failed'),
+                  testResult.message
+                );
+              },
+            },
+          ]
+        );
+      }
+    } catch (error: any) {
+      console.error('Network print error:', error);
+      Alert.alert(
+        t('Print Error'),
+        error.message || t('Failed to print to network printer')
+      );
+    }
+  };
+
   const printSale = async (sale: any) => {
+    // Load saved printers
+    const savedPrintersJson = await AsyncStorage.getItem('savedPrinters');
+    const savedPrinters = savedPrintersJson ? JSON.parse(savedPrintersJson) : [];
+    const networkPrinters = savedPrinters.filter((p: any) => p.type === 'network');
+    
+    const buttons: any[] = [
+      {
+        text: t('Cancel'),
+        style: 'cancel',
+      },
+      {
+        text: t('System Print'),
+        onPress: async () => {
+          try {
+            const payload = buildReceiptPayload(sale);
+            const html = await generateReceiptHtml(payload, {
+              name: storeName,
+              thankYouMessage: t('Thank you for your business!'),
+            });
+            await openPrintPreview(html);
+          } catch (error) {
+            console.error('Failed to print receipt', error);
+            Toast.show({ type: 'error', text1: t('Unable to print receipt') });
+          }
+        },
+      },
+      {
+        text: t('Share PDF'),
+        onPress: async () => {
+          try {
+            const payload = buildReceiptPayload(sale);
+            const html = await generateReceiptHtml(payload, {
+              name: storeName,
+              thankYouMessage: t('Thank you for your business!'),
+            });
+            const pdf = await createReceiptPdf(html);
+            await shareReceipt(pdf.uri);
+            Toast.show({ 
+              type: 'success', 
+              text1: t('PDF ready'), 
+              text2: t('Share to your printer app') 
+            });
+          } catch (error) {
+            console.error('Failed to create PDF', error);
+            Toast.show({ type: 'error', text1: t('Unable to create PDF') });
+          }
+        },
+      },
+    ];
+    
+    // Add network printer option if available
+    if (networkPrinters.length > 0) {
+      buttons.splice(1, 0, {
+        text: t('Network Printer'),
+        onPress: async () => {
+          // Show printer selection if multiple printers
+          if (networkPrinters.length > 1) {
+            Alert.alert(
+              t('Select Printer'),
+              t('Choose a network printer'),
+              [
+                ...networkPrinters.map((printer: any) => ({
+                  text: `${printer.name} (${printer.ip})`,
+                  onPress: () => printToNetworkPrinter(sale, printer),
+                })),
+                { text: t('Cancel'), style: 'cancel' },
+              ]
+            );
+          } else {
+            printToNetworkPrinter(sale, networkPrinters[0]);
+          }
+        },
+      });
+    }
+    
     Alert.alert(
       t('Print Receipt'),
       t('Choose printing method'),
-      [
-        {
-          text: t('Cancel'),
-          style: 'cancel',
-        },
-        {
-          text: t('System Print'),
-          onPress: async () => {
-            try {
-              const payload = buildReceiptPayload(sale);
-              const html = await generateReceiptHtml(payload, {
-                name: storeName,
-                thankYouMessage: t('Thank you for your business!'),
-              });
-              await openPrintPreview(html);
-            } catch (error) {
-              console.error('Failed to print receipt', error);
-              Toast.show({ type: 'error', text1: t('Unable to print receipt') });
-            }
-          },
-        },
-        {
-          text: t('Share PDF'),
-          onPress: async () => {
-            try {
-              const payload = buildReceiptPayload(sale);
-              const html = await generateReceiptHtml(payload, {
-                name: storeName,
-                thankYouMessage: t('Thank you for your business!'),
-              });
-              const pdf = await createReceiptPdf(html);
-              await shareReceipt(pdf.uri);
-              Toast.show({ 
-                type: 'success', 
-                text1: t('PDF ready'), 
-                text2: t('Share to your printer app') 
-              });
-            } catch (error) {
-              console.error('Failed to create PDF', error);
-              Toast.show({ type: 'error', text1: t('Unable to create PDF') });
-            }
-          },
-        },
-      ]
+      buttons
     );
   };
 

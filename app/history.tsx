@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Toast from 'react-native-toast-message';
 
 import { useData } from '../contexts/DataContext';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -45,6 +47,28 @@ export default function HistoryScreen() {
   const sales = rawSales ?? [];
   const todayKey = getTodayKey();
   
+  const storeName = shopProfile?.shopName?.trim()?.length ? shopProfile.shopName.trim() : t('Your Store');
+
+  const buildReceiptPayload = (sale: any) => ({
+    id: sale.id,
+    customerName: sale.customer?.name || t('Walk-in Customer'),
+    subtotal: sale.subtotal ?? 0,
+    tax: sale.tax ?? 0,
+    total: sale.total ?? 0,
+    paymentMethod: sale.paymentMethod ?? 'Cash',
+    createdAt: `${sale.date} ${formatTimeForDisplay(sale.time)}`,
+    creditUsed: sale.creditUsed ?? 0,
+    amountAfterCredit: sale.amountAfterCredit ?? sale.total ?? 0,
+    lineItems: (sale.cart || []).map((item: any) => ({
+      name: item.variantName ? `${item.name} - ${item.variantName}` : item.name,
+      quantity: item.quantity,
+      price: item.price,
+    })),
+    changeAmount: sale.changeAmount ?? 0,
+    amountPaid: sale.paidAmount ?? 0,
+    remainingBalance: sale.remainingBalance ?? 0,
+  });
+
   const historicalSales = useMemo(() => {
     return [...sales]
       .filter((sale) => {
@@ -122,29 +146,6 @@ export default function HistoryScreen() {
       ]
     );
   };
-
-  const buildReceiptPayload = (sale: any) => ({
-    id: sale.id,
-    customerName: sale.customer?.name || t('Walk-in Customer'),
-    subtotal: sale.subtotal ?? 0,
-    tax: sale.tax ?? 0,
-    total: sale.total ?? 0,
-    paymentMethod: sale.paymentMethod ?? 'Cash',
-    createdAt: `${sale.date} ${formatTimeForDisplay(sale.time)}`,
-    creditUsed: sale.creditUsed ?? 0,
-    amountAfterCredit: sale.amountAfterCredit ?? sale.total ?? 0,
-    lineItems: (sale.cart || []).map((item: any) => ({
-      name: item.variantName ? `${item.name} - ${item.variantName}` : item.name,
-      quantity: item.quantity,
-      price: item.price,
-    })),
-    changeAmount: sale.changeAmount ?? 0,
-    amountPaid: sale.paidAmount ?? 0,
-    remainingBalance: sale.remainingBalance ?? 0,
-  });
-
-  const storeName =
-    shopProfile?.shopName?.trim()?.length ? shopProfile.shopName.trim() : t('Your Store');
 
   const handleShareSaleText = async (sale: any) => {
     const lines: string[] = [];

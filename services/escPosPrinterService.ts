@@ -1,4 +1,5 @@
 import { NetworkPrinterConfig, ReceiptData, PrinterStatus } from '../types/printer';
+import { Buffer } from 'buffer';
 
 /**
  * ESC/POS Printer Service
@@ -267,67 +268,157 @@ export function buildTestReceipt(
  * Print via TCP socket to network printer
  * This is a React Native implementation using raw TCP
  */
+/**
+ * Send ESC/POS data to printer via TCP/IP
+ * Uses direct TCP socket connection for proper ESC/POS communication
+ */
 export async function printViaTCP(
   ip: string,
   port: number,
   data: Uint8Array,
   timeoutMs: number = 5000
 ): Promise<PrinterStatus> {
-  try {
-    // In React Native, we need to use a TCP socket library
-    // For now, we'll use fetch with a timeout as a fallback
-    // In production, you'd use react-native-tcp-socket or similar
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    
+  return new Promise((resolve) => {
     try {
-      // For HTTP fallback: send raw bytes as text
-      // Note: This is a workaround - real TCP socket is preferred
-      const response = await fetch(`http://${ip}:${port}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/octet-stream',
-        },
-        body: data as any, // Type workaround for React Native
-        signal: controller.signal,
+      // Try to use react-native-tcp-socket if available
+      // This requires: npm install react-native-tcp-socket
+      let TcpSocket: any;
+      
+      try {
+        TcpSocket = require('react-native-tcp-socket');
+      } catch (e) {
+        // Fallback: Library not installed
+        console.warn('react-native-tcp-socket not installed. Install it for proper ESC/POS printing.');
+        
+        // Try HTTP POST as last resort (may not work with all printers)
+        fallbackHttpPrint(ip, port, data, timeoutMs).then(resolve).catch(() => {
+          resolve({
+            success: false,
+            message: 'Install react-native-tcp-socket for proper ESC/POS printing',
+            error: 'TCP library missing',
+          });
+        });
+        return;
+      }
+      
+      // Create TCP socket connection
+      const client = TcpSocket.default.createConnection(
+        { host: ip, port: port, timeout: timeoutMs },
+        () => {
+          // Connected - send data
+          console.log('Connected to printer:', ip, port);
+          
+          // Convert Uint8Array to Buffer
+          const buffer = Buffer.from(data);
+          client.write(buffer);
+          
+          // Give printer time to receive data, then close
+          setTimeout(() => {
+            client.destroy();
+            resolve({
+              success: true,
+              message: 'Print job sent to printer',
+            });
+          }, 500);
+        }
+      );
+      
+      // Connection timeout
+      const timeoutId = setTimeout(() => {
+        client.destroy();
+        resolve({
+          success: false,
+          message: 'Connection timeout - check printer IP and ensure it is powered on',
+          error: 'Timeout',
+        });
+      }, timeoutMs);
+      
+      // Handle errors
+      client.on('error', (error: any) => {
+        clearTimeout(timeoutId);
+        client.destroy();
+        
+        let message = 'Printer connection failed';
+        if (error.message?.includes('ECONNREFUSED')) {
+          message = 'Connection refused - check printer IP and port';
+        } else if (error.message?.includes('ENETUNREACH')) {
+          message = 'Network unreachable - ensure phone and printer are on same Wi-Fi';
+        } else if (error.message?.includes('ETIMEDOUT')) {
+          message = 'Connection timeout - printer not responding';
+        }
+        
+        resolve({
+          success: false,
+          message: message,
+          error: error.message,
+        });
       });
       
-      clearTimeout(timeoutId);
+      // Handle connection close
+      client.on('close', () => {
+        clearTimeout(timeoutId);
+      });
       
-      if (response.ok) {
-        return {
-          success: true,
-          message: 'Print job sent successfully',
-        };
-      } else {
-        return {
-          success: false,
-          message: `Printer returned status ${response.status}`,
-          error: `HTTP ${response.status}`,
-        };
-      }
-    } catch (fetchError: any) {
-      clearTimeout(timeoutId);
-      
-      if (fetchError.name === 'AbortError') {
-        return {
-          success: false,
-          message: 'Printer timeout - check if printer is on and reachable',
-          error: 'Timeout',
-        };
-      }
-      
+    } catch (error: any) {
+      resolve({
+        success: false,
+        message: 'Failed to connect to printer',
+        error: error.message,
+      });
+    }
+  });
+}
+
+/**
+ * Fallback HTTP method (may not work with all printers)
+ */
+async function fallbackHttpPrint(
+  ip: string,
+  port: number,
+  data: Uint8Array,
+  timeoutMs: number
+): Promise<PrinterStatus> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    const response = await fetch(`http://${ip}:${port}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+      },
+      body: data as any,
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (response.ok) {
+      return {
+        success: true,
+        message: 'Print job sent (HTTP fallback)',
+      };
+    } else {
       return {
         success: false,
-        message: 'Network error - check Wi-Fi and printer IP',
-        error: fetchError.message,
+        message: `Printer returned HTTP ${response.status}`,
+        error: `HTTP ${response.status}`,
       };
     }
   } catch (error: any) {
+    clearTimeout(timeoutId);
+    
+    if (error.name === 'AbortError') {
+      return {
+        success: false,
+        message: 'Connection timeout',
+        error: 'Timeout',
+      };
+    }
+    
     return {
       success: false,
-      message: 'Failed to connect to printer',
+      message: 'HTTP connection failed',
       error: error.message,
     };
   }

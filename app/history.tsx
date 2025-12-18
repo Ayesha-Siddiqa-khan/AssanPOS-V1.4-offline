@@ -169,8 +169,9 @@ export default function HistoryScreen() {
       name: storeName,
       thankYouMessage: t('Thank you for your business!'),
     });
-    const pdf = await createReceiptPdf(html);
-    await shareReceipt(pdf.uri);
+    const fileName = `Receipt-${sale.id}-${sale.date ?? ''}.pdf`;
+    const pdf = await createReceiptPdf(html, { fileName });
+    await shareReceipt(pdf.uri, { fileName });
   };
 
   const printToNetworkPrinter = async (sale: any, printer: any) => {
@@ -260,8 +261,9 @@ export default function HistoryScreen() {
               name: storeName,
               thankYouMessage: t('Thank you for your business!'),
             });
-            const pdf = await createReceiptPdf(html);
-            await shareReceipt(pdf.uri);
+            const fileName = `Receipt-${sale.id}-${sale.date ?? ''}.pdf`;
+            const pdf = await createReceiptPdf(html, { fileName });
+            await shareReceipt(pdf.uri, { fileName });
           } catch (error) {
             console.error('Failed to create PDF', error);
             Alert.alert(t('Error'), t('Unable to create PDF'));

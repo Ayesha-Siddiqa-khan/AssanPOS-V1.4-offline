@@ -4,13 +4,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { Paths, File } from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
 
 import { useData } from '../../contexts/DataContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { Card } from '../../components/ui/Card';
 import { shareTextViaWhatsApp } from '../../lib/share';
-import { createReceiptPdf } from '../../services/receiptService';
+import { createReceiptPdf, shareReceipt } from '../../services/receiptService';
 
 type Timeframe = 'daily' | 'weekly' | 'monthly';
 
@@ -325,19 +324,15 @@ export default function ReportsScreen() {
         const html = buildPdfHtml();
         
         try {
-          const { uri } = await createReceiptPdf(html);
-          
-          // Check if sharing is available
-          const isSharingAvailable = await Sharing.isAvailableAsync();
-          
-          if (isSharingAvailable) {
-            await Sharing.shareAsync(uri, {
-              mimeType: 'application/pdf',
-              dialogTitle: t('Share Report PDF'),
-              UTI: 'com.adobe.pdf',
-            });
-          } else {
-            // Fallback: show the file location
+          const fileName = `report-${activeTab}-${new Date().toISOString().slice(0, 10)}.pdf`;
+          const { uri } = await createReceiptPdf(html, { fileName });
+
+          const shared = await shareReceipt(uri, {
+            fileName,
+            dialogTitle: t('Share Report PDF'),
+          });
+
+          if (!shared) {
             Toast.show({
               type: 'info',
               text1: t('PDF Generated'),

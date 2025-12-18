@@ -321,8 +321,9 @@ export default function SalesScreen() {
         name: storeName,
         thankYouMessage: t('Thank you for your business!'),
       });
-      const pdf = await createReceiptPdf(html);
-      await shareReceipt(pdf.uri);
+      const fileName = `Receipt-${sale.id}-${sale.date ?? ''}.pdf`;
+      const pdf = await createReceiptPdf(html, { fileName });
+      await shareReceipt(pdf.uri, { fileName });
       Toast.show({ type: 'success', text1: t('Receipt shared') });
     } catch (error) {
       console.error('Failed to share receipt PDF', error);
@@ -434,8 +435,9 @@ export default function SalesScreen() {
               name: storeName,
               thankYouMessage: t('Thank you for your business!'),
             });
-            const pdf = await createReceiptPdf(html);
-            await shareReceipt(pdf.uri);
+            const fileName = `Receipt-${sale.id}-${sale.date ?? ''}.pdf`;
+            const pdf = await createReceiptPdf(html, { fileName });
+            await shareReceipt(pdf.uri, { fileName });
             Toast.show({ 
               type: 'success', 
               text1: t('PDF ready'), 

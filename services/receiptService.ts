@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as MailComposer from 'expo-mail-composer';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Buffer } from 'buffer';
 
 const PRINTER_SERVICE_UUID =
@@ -16,6 +17,11 @@ let bleInitialized = false;
 export type ThermalPageOptions = {
   widthMm?: number;
   heightMm?: number;
+};
+
+export type ShareReceiptOptions = {
+  fileName?: string;
+  dialogTitle?: string;
 };
 
 const MM_TO_PT = 2.83465; // PDF uses points; 1 mm = 2.83465 pt
@@ -36,6 +42,36 @@ function resolveThermalWidth(widthMm?: number) {
 
 function mmToPt(valueMm: number) {
   return valueMm * MM_TO_PT;
+}
+
+function sanitizePdfFileName(name: string) {
+  const trimmed = (name || '').trim();
+  const base = trimmed.length ? trimmed : 'Receipt';
+  const withExt = base.toLowerCase().endsWith('.pdf') ? base : `${base}.pdf`;
+  // Remove characters that are problematic on common filesystems / Android shares
+  return withExt
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function ensureShareablePdfUri(fileUri: string, fileName?: string) {
+  const dir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+  if (!dir) return fileUri;
+
+  const safeName = sanitizePdfFileName(fileName ?? 'Receipt');
+  const targetUri = `${dir}${safeName}`;
+
+  // Best-effort replace existing file.
+  try {
+    await FileSystem.deleteAsync(targetUri, { idempotent: true });
+  } catch {
+    // ignore
+  }
+
+  // Copy instead of move to avoid edge cases across providers.
+  await FileSystem.copyAsync({ from: fileUri, to: targetUri });
+  return targetUri;
 }
 
 function estimateThermalHeightMm(html: string, widthMm: number) {
@@ -239,15 +275,19 @@ export async function generateReceiptHtml(payload: ReceiptPayload, profile: Stor
 
   const fmt = (value: number | undefined | null) => formatter.format(Number(value) || 0);
 
-  const rows = payload.lineItems
+  const items = Array.isArray(payload.lineItems) ? payload.lineItems : [];
+  const itemRows = items
     .map((item) => {
-      const lineTotal = (item.price || 0) * (item.quantity || 0);
+      const qty = Number(item.quantity) || 0;
+      const price = Number(item.price) || 0;
+      const lineTotal = price * qty;
       return `
-        <div class="item-name">${item.name}</div>
-        <div class="item-details">
-          <span>${item.quantity} x ${fmt(item.price)}</span>
-          <span>${fmt(lineTotal)}</span>
-        </div>
+        <tr>
+          <td class="col-desc">${item.name ?? ''}</td>
+          <td class="col-price">${fmt(price)}</td>
+          <td class="col-qty">${qty}</td>
+          <td class="col-amt">${fmt(lineTotal)}</td>
+        </tr>
       `;
     })
     .join('');
@@ -265,182 +305,141 @@ export async function generateReceiptHtml(payload: ReceiptPayload, profile: Stor
     <!DOCTYPE html>
     <html>
       <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Receipt #${payload.id} - Thermal ${80}mm</title>
+        <meta charset="UTF-8" />
+        <title>Receipt #${payload.id}</title>
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
-          body { 
-            font-family: 'Courier New', monospace; 
-            padding: 0;
-            margin: 0;
-            color: #000; 
-            font-size: 12px;
-            line-height: 1.3;
+          body {
+            font-family: 'Courier New', monospace;
+            color: #000;
+            font-size: 18px;
+            line-height: 1.35;
             width: 100%;
           }
-          .container {
-            padding: 2px 8px 8px 8px;
-            width: 100%;
-          }
-          h2 { 
-            margin: 0 0 4px 0; 
-            text-align: center; 
-            font-size: 16px;
-            font-weight: bold;
-          }
-          table { 
-            width: 100%; 
-            border-collapse: collapse; 
-            margin: 8px 0; 
-          }
-          td { 
-            padding: 2px 0; 
-            font-size: 12px; 
-          }
-          .meta { 
-            text-align: center; 
-            font-size: 11px; 
-            margin: 2px 0; 
-          }
-          .divider { 
+
+          .container { padding: 6px 8px 10px 8px; width: 100%; }
+
+          .title {
             text-align: center;
-            margin: 8px 0;
-            font-size: 12px;
-          }
-          .item-name {
-            font-weight: bold;
+            font-size: 24px;
+            font-weight: 900;
+            letter-spacing: 0.3px;
             margin-bottom: 2px;
           }
-          .item-details {
-            font-size: 11px;
-            margin-bottom: 6px;
+          .submeta { text-align: center; font-size: 15px; margin: 1px 0; }
+
+          .rule { text-align: center; margin: 10px 0; font-size: 14px; }
+
+          .kv {
             display: flex;
             justify-content: space-between;
-          }
-          .total-section {
-            margin: 8px 0;
-          }
-          .total-row { 
-            display: flex; 
-            justify-content: space-between; 
-            padding: 3px 0;
-            font-size: 12px;
-          }
-          .total-row.main { 
-            font-weight: bold; 
-            font-size: 14px;
-            padding: 5px 0;
-            border-top: 1px solid #000;
-            border-bottom: 1px solid #000;
+            gap: 10px;
             margin: 4px 0;
+            font-size: 16px;
           }
-          .footer { 
-            margin-top: 12px; 
-            text-align: center; 
-            font-size: 11px; 
+          .kv .k { font-weight: 800; }
+
+          table.items {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 8px 0 6px 0;
+            table-layout: fixed;
           }
-          .info-line {
+          table.items th {
+            font-size: 14px;
+            text-align: left;
+            padding: 4px 0;
+            border-bottom: 1px solid #000;
+          }
+          table.items td {
+            font-size: 16px;
+            padding: 4px 0;
+            vertical-align: top;
+          }
+
+          .col-desc { width: 48%; word-wrap: break-word; }
+          .col-price { width: 20%; text-align: right; padding-right: 4px; }
+          .col-qty { width: 10%; text-align: center; }
+          .col-amt { width: 22%; text-align: right; }
+
+          .totals { margin-top: 6px; }
+          .totals .row {
             display: flex;
             justify-content: space-between;
-            margin: 3px 0;
-            font-size: 11px;
+            margin: 4px 0;
+            font-size: 16px;
           }
-          .info-label {
-            font-weight: bold;
+          .totals .row strong { font-weight: 900; }
+
+          .net {
+            border: 2px solid #000;
+            padding: 8px 10px;
+            margin: 10px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 10px;
           }
+          .net .label { font-size: 18px; font-weight: 900; }
+          .net .value { font-size: 26px; font-weight: 900; }
+
+          .footer { margin-top: 10px; text-align: center; font-size: 15px; }
         </style>
       </head>
       <body>
         <div class="container">
-          <h2>${profile.name}</h2>
-          ${profile.address ? `<div class="meta">${profile.address}</div>` : ''}
-          ${profile.phone ? `<div class="meta">${profile.phone}</div>` : ''}
-          ${profile.email ? `<div class="meta">${profile.email}</div>` : ''}
-          
-          <div class="divider">================================</div>
-          
-          <div class="info-line">
-            <span class="info-label">Receipt #:</span>
-            <span>${payload.id}</span>
-          </div>
-          <div class="info-line">
-            <span class="info-label">Date:</span>
-            <span>${payload.createdAt}</span>
-          </div>
-          ${payload.customerName ? `<div class="info-line">
-            <span class="info-label">Customer:</span>
-            <span>${payload.customerName}</span>
-          </div>` : ''}
-          
-          <div class="divider">================================</div>
-          
-          <div>${rows}</div>
+          <div class="title">${profile.name}</div>
+          ${profile.address ? `<div class="submeta">${profile.address}</div>` : ''}
+          ${profile.phone ? `<div class="submeta">${profile.phone}</div>` : ''}
+          ${profile.email ? `<div class="submeta">${profile.email}</div>` : ''}
 
-          <div class="divider">================================</div>
+          <div class="rule">================================</div>
 
-          <div class="total-section">
-            <div class="total-row">
-              <span>Subtotal</span>
-              <span>${fmt(payload.subtotal)}</span>
-            </div>
-            <div class="total-row">
-              <span>Tax</span>
-              <span>${fmt(payload.tax)}</span>
-            </div>
-            <div class="total-row main">
-              <span>Total</span>
-              <span>${fmt(payload.total)}</span>
-            </div>
-            ${
-              hasCreditUsed
-                ? `<div class="total-row">
-                    <span>Credit Used</span>
-                    <span>${fmt(payload.creditUsed)}</span>
-                  </div>`
-                : ''
-            }
-            ${
-              hasAfterCredit
-                ? `<div class="total-row">
-                    <span>After Credit</span>
-                    <span>${fmt(payload?.amountAfterCredit ?? 0)}</span>
-                  </div>`
-                : ''
-            }
-            ${
-              hasPaid
-                ? `<div class="total-row">
-                    <span>Paid</span>
-                    <span>${fmt(payload.amountPaid)}</span>
-                  </div>`
-                : ''
-            }
-            ${
-              hasBalance
-                ? `<div class="total-row">
-                    <span>Balance</span>
-                    <span>${fmt(payload.remainingBalance)}</span>
-                  </div>`
-                : ''
-            }
-            ${
-              hasChange
-                ? `<div class="total-row">
-                    <span>Change</span>
-                    <span>${fmt(payload.changeAmount)}</span>
-                  </div>`
-                : ''
-            }
+          <div class="kv"><span class="k">Invoice #:</span><span>${payload.id}</span></div>
+          <div class="kv"><span class="k">Date:</span><span>${payload.createdAt}</span></div>
+          ${payload.customerName ? `<div class="kv"><span class="k">Bill To:</span><span>${payload.customerName}</span></div>` : ''}
+          <div class="kv"><span class="k">Items:</span><span>${items.length}</span></div>
+
+          <div class="rule">================================</div>
+
+          <table class="items">
+            <thead>
+              <tr>
+                <th class="col-desc">Description</th>
+                <th class="col-price">Price</th>
+                <th class="col-qty">Qty</th>
+                <th class="col-amt">Amnt</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemRows || `<tr><td class="col-desc">(No items)</td><td class="col-price"></td><td class="col-qty"></td><td class="col-amt"></td></tr>`}
+            </tbody>
+          </table>
+
+          <div class="rule">================================</div>
+
+          <div class="totals">
+            <div class="row"><span>Subtotal</span><span>${fmt(payload.subtotal)}</span></div>
+            <div class="row"><span>Tax</span><span>${fmt(payload.tax)}</span></div>
+            <div class="row"><strong>Total</strong><strong>${fmt(payload.total)}</strong></div>
+            ${hasCreditUsed ? `<div class="row"><span>Credit Used</span><span>- ${fmt(payload.creditUsed)}</span></div>` : ''}
+            ${hasAfterCredit ? `<div class="row"><span>After Credit</span><span>${fmt(payload.amountAfterCredit)}</span></div>` : ''}
           </div>
 
-          <div class="divider">================================</div>
-          
-          <div class="info-line">
-            <span class="info-label">Payment:</span>
-            <span>${payload.paymentMethod}</span>
+          <div class="net">
+            <div class="label">Net Amount</div>
+            <div class="value">${fmt(payload.total)}</div>
           </div>
-          
+
+          <div class="totals">
+            ${hasPaid ? `<div class="row"><span>Paid Amount</span><span>${fmt(payload.amountPaid)}</span></div>` : ''}
+            ${hasChange ? `<div class="row"><span>Change</span><span>${fmt(payload.changeAmount)}</span></div>` : ''}
+            ${hasBalance ? `<div class="row"><span>Balance</span><span>${fmt(payload.remainingBalance)}</span></div>` : ''}
+            <div class="row"><span>Payment</span><span>${payload.paymentMethod}</span></div>
+          </div>
+
+          <div class="rule">================================</div>
+
           ${profile.thankYouMessage ? `<div class="footer">${profile.thankYouMessage}</div>` : '<div class="footer">Thank you for your business!</div>'}
         </div>
       </body>
@@ -448,7 +447,10 @@ export async function generateReceiptHtml(payload: ReceiptPayload, profile: Stor
   `;
 }
 
-export async function createReceiptPdf(html: string, options?: ThermalPageOptions) {
+export async function createReceiptPdf(
+  html: string,
+  options?: ThermalPageOptions & { fileName?: string }
+) {
   const widthMm = resolveThermalWidth(options?.widthMm);
   const heightMm = options?.heightMm ?? estimateThermalHeightMm(html, widthMm);
   const normalizedHtml = withThermalPageSize(html, widthMm, heightMm);
@@ -464,7 +466,12 @@ export async function createReceiptPdf(html: string, options?: ThermalPageOption
     useMarkupHeight: true,
   };
 
-  return Print.printToFileAsync(printOptions);
+  const result = await Print.printToFileAsync(printOptions);
+  if (options?.fileName) {
+    const uri = await ensureShareablePdfUri(result.uri, options.fileName);
+    return { ...result, uri };
+  }
+  return result;
 }
 
 export async function openPrintPreview(html: string, options?: ThermalPageOptions) {
@@ -480,11 +487,18 @@ export async function openPrintPreview(html: string, options?: ThermalPageOption
   await invokePrint(normalizedHtml, widthMm, heightMm);
 }
 
-export async function shareReceipt(fileUri: string) {
+export async function shareReceipt(fileUri: string, options?: ShareReceiptOptions) {
   if (!(await Sharing.isAvailableAsync())) {
     return false;
   }
-  await Sharing.shareAsync(fileUri);
+
+  const shareUri = await ensureShareablePdfUri(fileUri, options?.fileName);
+
+  await Sharing.shareAsync(shareUri, {
+    mimeType: 'application/pdf',
+    dialogTitle: options?.dialogTitle,
+    UTI: Platform.OS === 'ios' ? 'com.adobe.pdf' : undefined,
+  });
   return true;
 }
 

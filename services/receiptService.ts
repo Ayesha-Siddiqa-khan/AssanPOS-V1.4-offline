@@ -88,7 +88,13 @@ function estimateThermalHeightMm(html: string, widthMm: number) {
   return Math.min(total, 1200);
 }
 
-function withThermalPageSize(html: string, widthMm: number, heightMm: number) {
+function withThermalPageSize(
+  html: string,
+  widthMm: number,
+  heightMm: number,
+  opts?: { forceThermalOnAndroid?: boolean }
+) {
+  const isAndroid = Platform.OS === 'android';
   const widthPx = Math.round(widthMm * 3.7795); // 1mm = ~3.78px at 96 DPI
   const widthInches = (widthMm / 25.4).toFixed(2);
   const heightInches = (heightMm / 25.4).toFixed(2);
@@ -98,28 +104,39 @@ function withThermalPageSize(html: string, widthMm: number, heightMm: number) {
   // gets scaled down and becomes unreadable. These scoped overrides enlarge
   // the receipt layout so it remains readable after scaling.
   const androidReceiptOverrides =
-    Platform.OS === 'android'
+    isAndroid
       ? `
       .asanpos-receipt {
-        font-size: 30px !important;
+        /* Render large on A4; printer app will scale to 80mm */
+        font-size: 44px !important;
         line-height: 1.35 !important;
       }
       .asanpos-receipt .container { padding: 8px 10px 12px 10px !important; }
-      .asanpos-receipt .title { font-size: 44px !important; }
-      .asanpos-receipt .submeta { font-size: 22px !important; }
-      .asanpos-receipt .kv { font-size: 24px !important; }
-      .asanpos-receipt table.items th { font-size: 20px !important; }
-      .asanpos-receipt table.items td { font-size: 24px !important; }
-      .asanpos-receipt .totals .row { font-size: 24px !important; }
-      .asanpos-receipt .net .label { font-size: 30px !important; }
-      .asanpos-receipt .net .value { font-size: 52px !important; }
-      .asanpos-receipt .footer { font-size: 22px !important; }
+      .asanpos-receipt .title { font-size: 60px !important; }
+      .asanpos-receipt .submeta { font-size: 30px !important; }
+      .asanpos-receipt .kv { font-size: 34px !important; }
+      .asanpos-receipt table.items th { font-size: 28px !important; }
+      .asanpos-receipt table.items td { font-size: 34px !important; }
+      .asanpos-receipt .totals .row { font-size: 34px !important; }
+      .asanpos-receipt .net .label { font-size: 40px !important; }
+      .asanpos-receipt .net .value { font-size: 74px !important; }
+      .asanpos-receipt .footer { font-size: 30px !important; }
+
+      /* Use full A4 width on Android to avoid tiny scaling */
+      .asanpos-receipt, .asanpos-receipt .container { width: 210mm !important; }
     `
       : '';
   
   const pageStyle = `
     <meta name="viewport" content="width=${widthPx}, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
+      ${
+        isAndroid && !opts?.forceThermalOnAndroid
+          ? `
+      @page { size: A4; margin: 0; }
+      @media print { @page { size: A4; margin: 0; } }
+      `
+          : `
       @page { 
         size: ${widthMm}mm ${heightMm}mm; 
         margin: 0mm;
@@ -134,10 +151,19 @@ function withThermalPageSize(html: string, widthMm: number, heightMm: number) {
           margin: 0;
         }
       }
+      `
+      }
       * { 
         -webkit-print-color-adjust: exact !important;
         print-color-adjust: exact !important;
       }
+      ${
+        isAndroid && !opts?.forceThermalOnAndroid
+          ? `
+      html, body { margin: 0; padding: 0; }
+      body { overflow-x: hidden; }
+      `
+          : `
       html { 
         width: ${widthMm}mm; 
         height: ${heightMm}mm;
@@ -157,6 +183,8 @@ function withThermalPageSize(html: string, widthMm: number, heightMm: number) {
           padding: 0 !important;
         }
       }
+      `
+      }
 
       ${androidReceiptOverrides}
     </style>
@@ -169,6 +197,18 @@ function withThermalPageSize(html: string, widthMm: number, heightMm: number) {
     return html.replace('<head>', `<head>${pageStyle}`);
   }
   return `<!DOCTYPE html><html><head>${pageStyle}</head>${html}</html>`;
+}
+
+async function isPdfLikelyEmpty(uri: string) {
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    if (!info.exists) return true;
+    const size = info.size ?? 0;
+    // Heuristic: PDFs with only the skeleton tend to be under 1 KB
+    return size < 1200;
+  } catch {
+    return false;
+  }
 }
 
 function getBleManager() {
@@ -477,22 +517,45 @@ export async function createReceiptPdf(
   html: string,
   options?: ThermalPageOptions & { fileName?: string }
 ) {
+  const isAndroid = Platform.OS === 'android';
   const widthMm = resolveThermalWidth(options?.widthMm);
   const heightMm = options?.heightMm ?? estimateThermalHeightMm(html, widthMm);
   const normalizedHtml = withThermalPageSize(html, widthMm, heightMm);
 
-  const printOptions: any = {
-    html: normalizedHtml,
-    base64: false,
-    width: mmToPt(widthMm),
-    height: mmToPt(heightMm),
-    margins: { top: 0, left: 0, right: 0, bottom: 0 },
-    printerMargins: { top: 0, left: 0, right: 0, bottom: 0 },
-    orientation: 'portrait',
-    useMarkupHeight: true,
-  };
+  const printOptions: any = isAndroid
+    ? {
+        html: normalizedHtml,
+        base64: false,
+      }
+    : {
+        html: normalizedHtml,
+        base64: false,
+        width: mmToPt(widthMm),
+        height: mmToPt(heightMm),
+        margins: { top: 0, left: 0, right: 0, bottom: 0 },
+        printerMargins: { top: 0, left: 0, right: 0, bottom: 0 },
+        orientation: 'portrait',
+        useMarkupHeight: true,
+      };
 
-  const result = await Print.printToFileAsync(printOptions);
+  let result = await Print.printToFileAsync(printOptions);
+
+  // If Android produced a suspiciously small/empty PDF, retry with thermal sizing
+  if (isAndroid && (await isPdfLikelyEmpty(result.uri))) {
+    const fallbackHtml = withThermalPageSize(html, widthMm, heightMm, { forceThermalOnAndroid: true });
+    const fallbackOptions: any = {
+      html: fallbackHtml,
+      base64: false,
+      width: mmToPt(widthMm),
+      height: mmToPt(heightMm),
+      margins: { top: 0, left: 0, right: 0, bottom: 0 },
+      printerMargins: { top: 0, left: 0, right: 0, bottom: 0 },
+      orientation: 'portrait',
+      useMarkupHeight: true,
+    };
+    result = await Print.printToFileAsync(fallbackOptions);
+  }
+
   if (options?.fileName) {
     const uri = await ensureShareablePdfUri(result.uri, options.fileName);
     return { ...result, uri };
@@ -501,9 +564,13 @@ export async function createReceiptPdf(
 }
 
 export async function openPrintPreview(html: string, options?: ThermalPageOptions) {
+  const isAndroid = Platform.OS === 'android';
   const widthMm = resolveThermalWidth(options?.widthMm);
   const heightMm = options?.heightMm ?? estimateThermalHeightMm(html, widthMm);
-  const normalizedHtml = withThermalPageSize(html, widthMm, heightMm);
+  const normalizedHtml = withThermalPageSize(html, widthMm, heightMm, {
+    // Force thermal sizing for system print on Android to avoid tiny scaling
+    forceThermalOnAndroid: isAndroid,
+  });
 
   if (Platform.OS === 'web') {
     await invokePrint(normalizedHtml, widthMm, heightMm);

@@ -428,13 +428,55 @@ async function fallbackHttpPrint(
  * Main print service interface
  */
 export class EscPosPrinterService {
+  private normalizeReceipt(data: ReceiptData, config?: NetworkPrinterConfig): ReceiptData {
+    const toNum = (value: any) => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    const items = Array.isArray(data.items) ? data.items : [];
+    const normalizedItems = items.map((item) => ({
+      name: `${item?.name ?? ''}`,
+      qty: toNum(item?.qty ?? item?.quantity ?? 0),
+      unitPrice: toNum(item?.unitPrice ?? item?.price ?? 0),
+    }));
+
+    return {
+      storeName: `${data.storeName ?? ''}`,
+      address: data.address ?? '',
+      phone: data.phone ?? '',
+      dateTime: `${data.dateTime ?? ''}`,
+      receiptNo: `${data.receiptNo ?? ''}`,
+      customerName: data.customerName ?? '',
+      items: normalizedItems,
+      subtotal: toNum(data.subtotal),
+      tax: toNum(data.tax),
+      total: toNum(data.total),
+      amountPaid: data.amountPaid !== undefined ? toNum(data.amountPaid) : undefined,
+      changeAmount: data.changeAmount !== undefined ? toNum(data.changeAmount) : undefined,
+      remainingBalance:
+        data.remainingBalance !== undefined ? toNum(data.remainingBalance) : undefined,
+      creditUsed: data.creditUsed !== undefined ? toNum(data.creditUsed) : undefined,
+      paymentMethod: `${data.paymentMethod ?? ''}`,
+      footer: `${data.footer ?? ''}`,
+    };
+  }
+
+  private normalizeConfig(config: NetworkPrinterConfig): NetworkPrinterConfig {
+    const paperWidthMM: 58 | 80 = config?.paperWidthMM === 58 ? 58 : 80;
+    const port = Number.isFinite(config?.port) ? config.port : 9100;
+    return { ...config, paperWidthMM, port } as NetworkPrinterConfig;
+  }
+
   async printReceipt(
     config: NetworkPrinterConfig,
     receiptData: ReceiptData
   ): Promise<PrinterStatus> {
     try {
-      const bytes = buildEscPosReceipt(receiptData, config.paperWidthMM);
-      return await printViaTCP(config.ip, config.port, bytes);
+      const normalizedConfig = this.normalizeConfig(config);
+      const safeReceipt = this.normalizeReceipt(receiptData, normalizedConfig);
+      const bytes = buildEscPosReceipt(safeReceipt, normalizedConfig.paperWidthMM);
+      return await printViaTCP(normalizedConfig.ip, normalizedConfig.port, bytes);
     } catch (error: any) {
       return {
         success: false,

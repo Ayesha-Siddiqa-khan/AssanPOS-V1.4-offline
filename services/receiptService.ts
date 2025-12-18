@@ -92,6 +92,30 @@ function withThermalPageSize(html: string, widthMm: number, heightMm: number) {
   const widthPx = Math.round(widthMm * 3.7795); // 1mm = ~3.78px at 96 DPI
   const widthInches = (widthMm / 25.4).toFixed(2);
   const heightInches = (heightMm / 25.4).toFixed(2);
+
+  // On Android, expo-print often generates an A4-sized PDF internally.
+  // When that A4 PDF is printed to an 80mm roll (e.g., via mPrint), the content
+  // gets scaled down and becomes unreadable. These scoped overrides enlarge
+  // the receipt layout so it remains readable after scaling.
+  const androidReceiptOverrides =
+    Platform.OS === 'android'
+      ? `
+      .asanpos-receipt {
+        font-size: 30px !important;
+        line-height: 1.35 !important;
+      }
+      .asanpos-receipt .container { padding: 8px 10px 12px 10px !important; }
+      .asanpos-receipt .title { font-size: 44px !important; }
+      .asanpos-receipt .submeta { font-size: 22px !important; }
+      .asanpos-receipt .kv { font-size: 24px !important; }
+      .asanpos-receipt table.items th { font-size: 20px !important; }
+      .asanpos-receipt table.items td { font-size: 24px !important; }
+      .asanpos-receipt .totals .row { font-size: 24px !important; }
+      .asanpos-receipt .net .label { font-size: 30px !important; }
+      .asanpos-receipt .net .value { font-size: 52px !important; }
+      .asanpos-receipt .footer { font-size: 22px !important; }
+    `
+      : '';
   
   const pageStyle = `
     <meta name="viewport" content="width=${widthPx}, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -133,6 +157,8 @@ function withThermalPageSize(html: string, widthMm: number, heightMm: number) {
           padding: 0 !important;
         }
       }
+
+      ${androidReceiptOverrides}
     </style>
   `;
 
@@ -386,7 +412,7 @@ export async function generateReceiptHtml(payload: ReceiptPayload, profile: Stor
           .footer { margin-top: 10px; text-align: center; font-size: 15px; }
         </style>
       </head>
-      <body>
+      <body class="asanpos-receipt">
         <div class="container">
           <div class="title">${profile.name}</div>
           ${profile.address ? `<div class="submeta">${profile.address}</div>` : ''}
@@ -492,14 +518,26 @@ export async function shareReceipt(fileUri: string, options?: ShareReceiptOption
     return false;
   }
 
-  const shareUri = await ensureShareablePdfUri(fileUri, options?.fileName);
+  let shareUri = fileUri;
+  try {
+    try {
+      shareUri = await ensureShareablePdfUri(fileUri, options?.fileName);
+    } catch (copyError) {
+      // If we can't copy/rename the file, still try sharing the original.
+      console.warn('shareReceipt: failed to prepare shareable uri, using original', copyError);
+      shareUri = fileUri;
+    }
 
-  await Sharing.shareAsync(shareUri, {
-    mimeType: 'application/pdf',
-    dialogTitle: options?.dialogTitle,
-    UTI: Platform.OS === 'ios' ? 'com.adobe.pdf' : undefined,
-  });
-  return true;
+    await Sharing.shareAsync(shareUri, {
+      mimeType: 'application/pdf',
+      dialogTitle: options?.dialogTitle,
+      UTI: Platform.OS === 'ios' ? 'com.adobe.pdf' : undefined,
+    });
+    return true;
+  } catch (error) {
+    console.error('shareReceipt failed', error);
+    return false;
+  }
 }
 
 async function invokePrint(html: string, widthMm: number, heightMm: number) {

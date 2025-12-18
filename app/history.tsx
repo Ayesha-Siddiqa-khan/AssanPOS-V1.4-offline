@@ -164,14 +164,22 @@ export default function HistoryScreen() {
   };
 
   const handleShareSalePdf = async (sale: any) => {
-    const payload = buildReceiptPayload(sale);
-    const html = await generateReceiptHtml(payload, {
-      name: storeName,
-      thankYouMessage: t('Thank you for your business!'),
-    });
-    const fileName = `Receipt-${sale.id}-${sale.date ?? ''}.pdf`;
-    const pdf = await createReceiptPdf(html, { fileName });
-    await shareReceipt(pdf.uri, { fileName });
+    try {
+      const payload = buildReceiptPayload(sale);
+      const html = await generateReceiptHtml(payload, {
+        name: storeName,
+        thankYouMessage: t('Thank you for your business!'),
+      });
+      const fileName = `Receipt-${sale.id}-${sale.date ?? ''}.pdf`;
+      const pdf = await createReceiptPdf(html, { fileName });
+      const shared = await shareReceipt(pdf.uri, { fileName });
+      if (!shared) {
+        Alert.alert(t('Error'), t('Unable to share PDF receipt'));
+      }
+    } catch (error) {
+      console.error('Failed to share receipt PDF', error);
+      Alert.alert(t('Error'), t('Unable to share PDF receipt'));
+    }
   };
 
   const printToNetworkPrinter = async (sale: any, printer: any) => {
@@ -263,7 +271,10 @@ export default function HistoryScreen() {
             });
             const fileName = `Receipt-${sale.id}-${sale.date ?? ''}.pdf`;
             const pdf = await createReceiptPdf(html, { fileName });
-            await shareReceipt(pdf.uri, { fileName });
+            const shared = await shareReceipt(pdf.uri, { fileName });
+            if (!shared) {
+              Alert.alert(t('Error'), t('Unable to share PDF receipt'));
+            }
           } catch (error) {
             console.error('Failed to create PDF', error);
             Alert.alert(t('Error'), t('Unable to create PDF'));

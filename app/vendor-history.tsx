@@ -100,7 +100,10 @@ export default function VendorPurchaseHistoryScreen() {
       const html = buildSummaryHtml();
       const fileName = vendor ? `Vendor-Summary-${vendor.name}.pdf` : 'Vendor-Summary.pdf';
       const pdf = await createReceiptPdf(html, { fileName });
-      await shareReceipt(pdf.uri, { fileName });
+      const shared = await shareReceipt(pdf.uri, { fileName });
+      if (!shared) {
+        Alert.alert(t('Error'), t('Unable to share PDF receipt'));
+      }
     } catch (error) {
       console.error('Failed to share vendor summary PDF', error);
     }
@@ -335,7 +338,10 @@ export default function VendorPurchaseHistoryScreen() {
       const html = await generateReceiptHtml(receipt, store);
       const fileName = `Purchase-${purchase.id}-${purchase.date ?? ''}.pdf`;
       const pdf = await createReceiptPdf(html, { fileName });
-      await shareReceipt(pdf.uri, { fileName });
+      const shared = await shareReceipt(pdf.uri, { fileName });
+      if (!shared) {
+        Alert.alert(t('Error'), t('Unable to share PDF receipt'));
+      }
     } catch (error) {
       console.error('Failed to share purchase PDF', error);
     }

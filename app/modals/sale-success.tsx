@@ -198,8 +198,12 @@ export default function SaleSuccessModal() {
     setIsSharingPdf(true);
     try {
       const html = await generateReceiptHtml(receiptPayload, storeProfile);
-      const pdf = await createReceiptPdf(html);
-      await shareReceipt(pdf.uri);
+      const fileName = `Receipt-${receiptPayload.id}.pdf`;
+      const pdf = await createReceiptPdf(html, { fileName });
+      const shared = await shareReceipt(pdf.uri, { fileName });
+      if (!shared) {
+        Toast.show({ type: 'error', text1: t('Unable to share PDF receipt') });
+      }
     } catch (error) {
       console.error('PDF share failed', error);
       Toast.show({ type: 'error', text1: t('Unable to share PDF receipt') });

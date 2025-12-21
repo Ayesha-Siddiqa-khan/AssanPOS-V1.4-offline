@@ -325,9 +325,14 @@ export default function SalesScreen() {
         name: storeName,
         thankYouMessage: t('Thank you for your business!'),
       });
-      const pdf = await createReceiptPdf(html);
-      await shareReceipt(pdf.uri);
-      Toast.show({ type: 'success', text1: t('Receipt shared') });
+      const fileName = `Receipt-${sale.id}-${sale.date ?? ''}.pdf`;
+      const pdf = await createReceiptPdf(html, { fileName });
+      const shared = await shareReceipt(pdf.uri, { fileName });
+      if (shared) {
+        Toast.show({ type: 'success', text1: t('Receipt shared') });
+      } else {
+        Toast.show({ type: 'error', text1: t('Unable to share PDF receipt') });
+      }
     } catch (error) {
       console.error('Failed to share receipt PDF', error);
       Toast.show({ type: 'error', text1: t('Unable to share PDF receipt') });
@@ -393,13 +398,18 @@ export default function SalesScreen() {
               name: storeName,
               thankYouMessage: t('Thank you for your business!'),
             });
-            const pdf = await createReceiptPdf(html);
-            await shareReceipt(pdf.uri);
-            Toast.show({ 
-              type: 'success', 
-              text1: t('PDF ready'), 
-              text2: t('Share to your printer app') 
-            });
+            const fileName = `Receipt-${sale.id}-${sale.date ?? ''}.pdf`;
+            const pdf = await createReceiptPdf(html, { fileName });
+            const shared = await shareReceipt(pdf.uri, { fileName });
+            if (shared) {
+              Toast.show({
+                type: 'success',
+                text1: t('PDF ready'),
+                text2: t('Share to your printer app'),
+              });
+            } else {
+              Toast.show({ type: 'error', text1: t('Unable to share PDF receipt') });
+            }
           } catch (error) {
             console.error('Failed to create PDF', error);
             Toast.show({ type: 'error', text1: t('Unable to create PDF') });

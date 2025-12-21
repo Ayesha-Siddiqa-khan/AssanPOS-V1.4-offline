@@ -1978,6 +1978,16 @@ export const database = {
     });
   },
 
+  async getPrintJob(id: number): Promise<PrintJobRecord | null> {
+    return runDatabaseOperation(async (database) => {
+      const row = await database.getFirstAsync(
+        'SELECT * FROM print_jobs WHERE id = ?',
+        [id]
+      );
+      return row ? mapPrintJobRow(row) : null;
+    });
+  },
+
   async getNextPendingPrintJob(): Promise<PrintJobRecord | null> {
     return runDatabaseOperation(async (database) => {
       const now = new Date().toISOString();

@@ -180,6 +180,11 @@ function ReceiptBitmapLayout({
       </View>
 
       <Text style={styles.footerText}>{receipt.footer}</Text>
+      {receipt.developerFooterLines?.map((line, index) => (
+        <Text key={`dev-footer-${index}`} style={styles.footerText}>
+          {line}
+        </Text>
+      ))}
     </View>
   );
 }

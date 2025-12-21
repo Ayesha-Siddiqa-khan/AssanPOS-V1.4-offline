@@ -58,6 +58,7 @@ import { formatDateForDisplay } from '../../lib/date';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { NetworkPrinterConfig, PrinterCutMode, PrinterEncoding } from '../../types/printer';
 import { enqueueTestPrint, migrateLegacyPrinters } from '../../services/printQueueService';
+import { DEVELOPER_FOOTER_SETTING_KEY } from '../../services/receiptPreferences';
 
 const getDefaultBackupFileName = () => {
   const now = new Date();
@@ -194,6 +195,7 @@ export default function SettingsScreen() {
   const [printerBitmapFallback, setPrinterBitmapFallback] = useState(false);
   const [editingPrinter, setEditingPrinter] = useState<NetworkPrinterConfig | null>(null);
   const [savedPrinters, setSavedPrinters] = useState<NetworkPrinterConfig[]>([]);
+  const [developerFooterEnabled, setDeveloperFooterEnabled] = useState(true);
 
   // User management is now done through the admin panel (Supabase)
   // Disable local user management since it uses the old SQLite system
@@ -321,6 +323,14 @@ export default function SettingsScreen() {
       if (width === '58' || width === '80') {
         setPrinterWidth(width);
       }
+      const footerSetting = await db.getSetting(DEVELOPER_FOOTER_SETTING_KEY);
+      if (footerSetting === null || footerSetting === undefined) {
+        setDeveloperFooterEnabled(true);
+      } else if (typeof footerSetting === 'string') {
+        setDeveloperFooterEnabled(footerSetting.toLowerCase() !== 'false');
+      } else {
+        setDeveloperFooterEnabled(Boolean(footerSetting));
+      }
       await migrateLegacyPrinters();
       const profiles = await db.listPrinterProfiles();
       setSavedPrinters(profiles);
@@ -332,6 +342,22 @@ export default function SettingsScreen() {
   const refreshPrinters = async () => {
     const profiles = await db.listPrinterProfiles();
     setSavedPrinters(profiles);
+  };
+
+  const handleToggleDeveloperFooter = async () => {
+    const nextValue = !developerFooterEnabled;
+    setDeveloperFooterEnabled(nextValue);
+    try {
+      await db.setSetting(DEVELOPER_FOOTER_SETTING_KEY, nextValue);
+      Toast.show({
+        type: 'success',
+        text1: nextValue ? t('Developer footer enabled') : t('Developer footer disabled'),
+      });
+    } catch (error) {
+      console.error('Failed to update developer footer setting', error);
+      setDeveloperFooterEnabled(!nextValue);
+      Toast.show({ type: 'error', text1: t('Could not update receipt footer') });
+    }
   };
 
   const handleSaveShopDetails = async () => {
@@ -1553,6 +1579,30 @@ export default function SettingsScreen() {
               </View>
             </View>
 
+            <View style={styles.printerFooterRow}>
+              <View style={styles.printerFooterText}>
+                <Text style={styles.printerLabel}>{t('Developer footer')}</Text>
+                <Text style={styles.printerHelper}>
+                  {t('Show developer contact on receipts.')}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={handleToggleDeveloperFooter} activeOpacity={0.8}>
+                <View
+                  style={[
+                    styles.toggleSwitch,
+                    developerFooterEnabled && styles.toggleSwitchActive,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.toggleKnob,
+                      developerFooterEnabled && styles.toggleKnobActive,
+                    ]}
+                  />
+                </View>
+              </TouchableOpacity>
+            </View>
+
             {/* Add New Printer Button */}
             <TouchableOpacity
               style={styles.addPrinterButton}
@@ -2166,6 +2216,9 @@ export default function SettingsScreen() {
               <Text style={styles.backupLocationTitle}>{t('Last inventory backup')}</Text>
               <Text style={styles.backupLocationLine}>
                 {t('File')}: {lastInventoryBackup.fileName}
+              </Text>
+              <Text style={styles.backupLocationLine}>
+                {t('Saved')}: {describeTimestamp(lastInventoryBackup.savedAt)}
               </Text>
               <Text style={styles.backupLocationLine}>
                 {t('Location')}:{' '}
@@ -3850,6 +3903,21 @@ const styles = StyleSheet.create({
   printerWidthButtons: {
     flexDirection: 'row',
     gap: 12,
+  },
+  printerFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 20,
+  },
+  printerFooterText: {
+    flex: 1,
+  },
+  printerHelper: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 4,
   },
   printerWidthButton: {
     flex: 1,

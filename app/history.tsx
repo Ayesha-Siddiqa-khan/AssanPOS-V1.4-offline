@@ -14,6 +14,7 @@ import { shareTextViaWhatsApp } from '../lib/share';
 import { createReceiptPdf, generateReceiptHtml, openPrintPreview, shareReceipt } from '../services/receiptService';
 import { enqueueReceiptPrint } from '../services/printQueueService';
 import { mapSaleToReceiptData } from '../services/receiptMapper';
+import { applyDeveloperFooter } from '../services/receiptPreferences';
 import { spacing, radii, textStyles } from '../theme/tokens';
 import type { NetworkPrinterConfig } from '../types/printer';
 
@@ -179,12 +180,12 @@ export default function HistoryScreen() {
 
   const printToNetworkPrinter = async (sale: any, printer: NetworkPrinterConfig) => {
     try {
-      const receiptData = mapSaleToReceiptData(sale, {
+      const receiptData = await applyDeveloperFooter(mapSaleToReceiptData(sale, {
         storeName,
         address: shopProfile?.address,
         phone: shopProfile?.phoneNumber,
         footer: t('Thank you for your business!'),
-      });
+      }));
 
       await enqueueReceiptPrint(printer, receiptData);
       Toast.show({

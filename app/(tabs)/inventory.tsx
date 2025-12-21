@@ -34,6 +34,8 @@ import { Button } from '../../components/ui/Button';
 import { ScanModeToggle, ScanMode } from '../../components/ui/ScanModeToggle';
 import { spacing, radii, textStyles, breakpoints } from '../../theme/tokens';
 import { getLayoutSize } from '../../theme/layout';
+import { db } from '../../lib/database';
+import { formatDateForDisplay } from '../../lib/date';
 
 const createCurrencyFormatter = () => {
   try {
@@ -69,6 +71,16 @@ type StockScannerTarget = {
 type InventoryDataShape = ReturnType<typeof useData>;
 type ProductItem = InventoryDataShape['products'][number];
 type VariantItem = NonNullable<ProductItem['variants']>[number];
+type StockAlert = {
+  id: string;
+  productId: number;
+  variantId?: number | null;
+  name: string;
+  variantName?: string;
+  requestedQty: number;
+  previousStock: number;
+  createdAt: string;
+};
 
 const normalizeBarcodeValue = (value: string | number | null | undefined) =>
   (value == null ? '' : String(value))
@@ -112,12 +124,26 @@ export default function InventoryScreen() {
   const [showStockScannerCamera, setShowStockScannerCamera] = useState(true);
   const [stockScanMode, setStockScanMode] = useState<ScanMode>('barcode');
   const [scannerPermissionGranted, setScannerPermissionGranted] = useState(false);
+  const [stockAlerts, setStockAlerts] = useState<StockAlert[]>([]);
 
   useEffect(() => {
     if (cameraPermission?.granted) {
       setScannerPermissionGranted(true);
     }
   }, [cameraPermission?.granted]);
+
+  const loadStockAlerts = useCallback(async () => {
+    try {
+      const stored = await db.getSetting('stock.alerts');
+      setStockAlerts(Array.isArray(stored) ? (stored as StockAlert[]) : []);
+    } catch (error) {
+      console.error('[Inventory] Failed to load stock alerts', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadStockAlerts();
+  }, [loadStockAlerts]);
 
   const ensureScannerPermission = useCallback(async () => {
     if (scannerPermissionGranted || cameraPermission?.granted) {
@@ -185,6 +211,17 @@ export default function InventoryScreen() {
     setShowBarcodeModal(false);
     setBarcodeInput('');
     setShowCamera(false);
+  };
+
+  const handleClearStockAlerts = async () => {
+    try {
+      await db.setSetting('stock.alerts', []);
+      setStockAlerts([]);
+      Toast.show({ type: 'success', text1: t('Stock alerts cleared') });
+    } catch (error) {
+      console.error('[Inventory] Failed to clear stock alerts', error);
+      Toast.show({ type: 'error', text1: t('Unable to clear alerts') });
+    }
   };
 
   const handleCameraScanRequest = async () => {
@@ -748,6 +785,8 @@ export default function InventoryScreen() {
       }).length,
     [products]
   );
+
+  const recentStockAlerts = useMemo(() => stockAlerts.slice(0, 3), [stockAlerts]);
 
   const filteredByFilters = useMemo(() => {
     const passesFilters = (product: typeof products[number]) => {
@@ -1592,6 +1631,48 @@ export default function InventoryScreen() {
                   </Text>
                 </View>
               </View>
+              {stockAlerts.length > 0 && (
+                <View style={styles.alertCard}>
+                  <View style={styles.alertHeader}>
+                    <View>
+                      <Text style={styles.alertTitle}>{t('Stock alerts')}</Text>
+                      <Text style={styles.alertSubtitle}>
+                        {t('Items sold below available stock')}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.alertClearButton}
+                      onPress={handleClearStockAlerts}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.alertClearText}>{t('Clear')}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {recentStockAlerts.map((alert) => (
+                    <View key={alert.id} style={styles.alertRow}>
+                      <View style={styles.alertRowText}>
+                        <Text style={styles.alertName} numberOfLines={1}>
+                          {alert.variantName
+                            ? `${alert.name} - ${alert.variantName}`
+                            : alert.name}
+                        </Text>
+                        <Text style={styles.alertMeta}>
+                          {t('Sold')} {alert.requestedQty} {t('when only')}{' '}
+                          {alert.previousStock} {t('left')}
+                        </Text>
+                      </View>
+                      <Text style={styles.alertTimestamp}>
+                        {formatDateForDisplay(alert.createdAt)}
+                      </Text>
+                    </View>
+                  ))}
+                  {stockAlerts.length > recentStockAlerts.length && (
+                    <Text style={styles.alertMoreText}>
+                      {t('View more in alerts history')}
+                    </Text>
+                  )}
+                </View>
+              )}
               <View style={{ height: spacing.md }} />
             </View>
           }
@@ -2082,6 +2163,72 @@ const styles = StyleSheet.create({
   },
   lowStockCard: {
     flex: 0.9,
+  },
+  alertCard: {
+    marginTop: spacing.md,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: '#fed7aa',
+    backgroundColor: '#fff7ed',
+    gap: spacing.sm,
+  },
+  alertHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  alertTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#9a3412',
+  },
+  alertSubtitle: {
+    fontSize: 12,
+    color: '#c2410c',
+    marginTop: 2,
+  },
+  alertClearButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#fdba74',
+    backgroundColor: '#ffedd5',
+  },
+  alertClearText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#c2410c',
+  },
+  alertRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  alertRowText: {
+    flex: 1,
+  },
+  alertName: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#9a3412',
+  },
+  alertMeta: {
+    fontSize: 12,
+    color: '#c2410c',
+    marginTop: 2,
+  },
+  alertTimestamp: {
+    fontSize: 11,
+    color: '#9a3412',
+  },
+  alertMoreText: {
+    fontSize: 12,
+    color: '#c2410c',
+    textAlign: 'right',
   },
   statTop: {
     flexDirection: 'row',
@@ -2870,8 +3017,3 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
-
-
-
-
-

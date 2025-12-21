@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '../lib/database';
 import type { NetworkPrinterConfig, ReceiptData, PrintJob } from '../types/printer';
 import { printerService, buildTestReceiptData } from './escPosPrinterService';
+import { applyDeveloperFooter } from './receiptPreferences';
 
 const LEGACY_MIGRATION_KEY = 'printerProfilesMigrated';
 const RETRY_BASE_DELAY_MS = 4000;
@@ -82,9 +83,11 @@ export async function enqueueReceiptPrint(
 }
 
 export async function enqueueTestPrint(profile: NetworkPrinterConfig): Promise<number> {
-  const payload = buildTestReceiptData(profile, {
-    storeName: profile.name,
-  });
+  const payload = await applyDeveloperFooter(
+    buildTestReceiptData(profile, {
+      storeName: profile.name,
+    })
+  );
   return enqueueReceiptPrint(profile, payload, { type: 'test' });
 }
 
@@ -152,6 +155,10 @@ async function executePrintJob(job: PrintJob) {
 
 export async function listPrintJobs(limit = 100) {
   return db.listPrintJobs(limit);
+}
+
+export async function getPrintJob(id: number) {
+  return db.getPrintJob(id);
 }
 
 export async function retryPrintJob(id: number) {

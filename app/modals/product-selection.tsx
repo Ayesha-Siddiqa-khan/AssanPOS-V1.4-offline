@@ -34,10 +34,12 @@ import { db } from '../../lib/database';
 import { formatDateForStorage } from '../../lib/date';
 import { enqueueReceiptPrint } from '../../services/printQueueService';
 import { mapSaleToReceiptData } from '../../services/receiptMapper';
+import { applyDeveloperFooter } from '../../services/receiptPreferences';
 import type { NetworkPrinterConfig } from '../../types/printer';
 
 const PRODUCT_SELECTION_BARCODE_TYPES: BarcodeType[] = ['ean13', 'code128', 'upc_a', 'upc_e', 'code39', 'code93'];
 const SCAN_REENABLE_DELAY_MS = 4000;
+const SCAN_PREVIEW_DELAY_MS = 1000;
 // Keep dropdown short for speed/clarity
 const MAX_SUGGESTIONS = 7;
 
@@ -98,6 +100,16 @@ export default function ProductSelectionModal() {
   const [multiScanMode, setMultiScanMode] = useState(false);
   const [scanFrameSize, setScanFrameSize] = useState<'small' | 'medium' | 'large'>('small');
   const lastAutoAddBarcodeRef = useRef<string | null>(null);
+  const [scanPreview, setScanPreview] = useState<{
+    barcode: string;
+    productName: string;
+    priceLabel: string;
+    foundProduct: (typeof products)[number] | null;
+    foundVariant: any | null;
+    isPriceLookup: boolean;
+    isInstantAdd: boolean;
+  } | null>(null);
+  const scanPreviewTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [showVoiceModal, setShowVoiceModal] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [voiceText, setVoiceText] = useState('');
@@ -809,14 +821,16 @@ export default function ProductSelectionModal() {
 
   const scanFrameStyle = useMemo(() => {
     const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
-    const smallHeight = clamp(height * 0.28, 120, 170);
+    const smallHeight = clamp(height * 0.22, 90, 130);
+    const smallWidthTarget = smallHeight * 1.5;
+    const smallWidth = clamp(smallWidthTarget, 140, width * 0.82);
     const mediumHeight = clamp(height * 0.34, 140, 190);
     const largeHeight = clamp(height * 0.38, 160, 210);
 
-    if (scanFrameSize === 'small') return { width: '70%', height: smallHeight };
+    if (scanFrameSize === 'small') return { width: smallWidth, height: smallHeight };
     if (scanFrameSize === 'large') return { width: '88%', height: largeHeight };
     return { width: '78%', height: mediumHeight };
-  }, [scanFrameSize, height]);
+  }, [scanFrameSize, height, width]);
 
   const scanFrameLabel = useMemo(() => {
     if (scanFrameSize === 'small') return t('Small');
@@ -828,6 +842,28 @@ export default function ProductSelectionModal() {
     setScanFrameSize((prev) => (prev === 'small' ? 'medium' : prev === 'medium' ? 'large' : 'small'));
   };
 
+  const clearScanPreview = () => {
+    if (scanPreviewTimerRef.current) {
+      clearTimeout(scanPreviewTimerRef.current);
+      scanPreviewTimerRef.current = null;
+    }
+    setScanPreview(null);
+  };
+
+  const cancelScanPreview = () => {
+    clearScanPreview();
+    setCanScanBarcode(true);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (scanPreviewTimerRef.current) {
+        clearTimeout(scanPreviewTimerRef.current);
+        scanPreviewTimerRef.current = null;
+      }
+    };
+  }, []);
+
   // Handle barcode scanned from camera
   const handleBarCodeScanned = (data: string) => {
     if (!canScanBarcode) {
@@ -835,17 +871,15 @@ export default function ProductSelectionModal() {
     }
     setCanScanBarcode(false);
     Vibration.vibrate(50);
-    if (!multiScanMode) {
-      setShowCamera(false);
-      setShowBarcodeModal(false);
-    }
+    const priceLookupActive = isPriceLookup;
+    const instantAddActive = isInstantAddMode;
     setIsPriceLookup(false);
     setBarcodeInput('');
 
     try {
-      console.log('[DEBUG] product selection scan:', data);
-      Toast.show({ type: 'info', text1: 'Scanned (product selection)', text2: data });
-      const normalizedScan = normalizeBarcodeValue(data);
+      const rawData = String(data ?? '');
+      console.log('[DEBUG] product selection scan:', rawData);
+      const normalizedScan = normalizeBarcodeValue(rawData);
       if (!normalizedScan) {
         setCanScanBarcode(true);
         return;
@@ -873,38 +907,71 @@ export default function ProductSelectionModal() {
         }
       }
 
-      // If product found and in instant add mode, add to cart
-      if (isPriceLookup && foundProduct) {
-        const retail = foundVariant ? foundVariant.price : foundProduct.price ?? 0;
-        Toast.show({
-          type: 'info',
-          text1: foundVariant ? `${foundProduct.name} • ${foundVariant.name}` : foundProduct.name,
-          text2: `${t('Retail Price')}: Rs. ${Number(retail || 0).toLocaleString()}`,
-        });
-      } else if (foundProduct && isInstantAddMode) {
-        handleAddProduct(foundProduct, foundVariant);
-        Toast.show({
-          type: 'success',
-          text1: t('Product Added'),
-          text2: foundVariant ? `${foundProduct.name} • ${foundVariant.name}` : foundProduct.name,
-        });
-      } else if (foundProduct) {
-        // Manual mode: just set search query
-        setSearchQuery(foundVariant ? `${foundProduct.name} • ${foundVariant.name}` : foundProduct.name);
-        Toast.show({
-          type: 'success',
-          text1: t('Barcode Scanned'),
-          text2: data,
-        });
-      } else {
-        // Not found: set search query for manual search
-        setSearchQuery(data);
-        Toast.show({
-          type: 'info',
-          text1: t('Product not found'),
-          text2: t('Search manually or add custom product'),
-        });
-      }
+      const productLabel = foundProduct
+        ? foundVariant
+          ? `${foundProduct.name} - ${foundVariant.name}`
+          : foundProduct.name
+        : t('Product not found');
+      const priceLabel = foundProduct
+        ? `Rs. ${getResolvedPrice(foundProduct, foundVariant).toLocaleString()}`
+        : t('N/A');
+
+      clearScanPreview();
+      setScanPreview({
+        barcode: rawData,
+        productName: productLabel,
+        priceLabel,
+        foundProduct,
+        foundVariant,
+        isPriceLookup: priceLookupActive,
+        isInstantAdd: instantAddActive,
+      });
+
+      scanPreviewTimerRef.current = setTimeout(() => {
+        setScanPreview(null);
+        Toast.show({ type: 'info', text1: 'Scanned (product selection)', text2: rawData });
+
+        if (priceLookupActive && foundProduct) {
+          const retail = getResolvedPrice(foundProduct, foundVariant);
+          Toast.show({
+            type: 'info',
+            text1: productLabel,
+            text2: `${t('Retail Price')}: Rs. ${Number(retail || 0).toLocaleString()}`
+          });
+        } else if (foundProduct && instantAddActive) {
+          handleAddProduct(foundProduct, foundVariant);
+          Toast.show({
+            type: 'success',
+            text1: t('Product Added'),
+            text2: productLabel,
+          });
+        } else if (foundProduct) {
+          // Manual mode: just set search query
+          setSearchQuery(productLabel);
+          Toast.show({
+            type: 'success',
+            text1: t('Barcode Scanned'),
+            text2: rawData,
+          });
+        } else {
+          // Not found: set search query for manual search
+          setSearchQuery(rawData);
+          Toast.show({
+            type: 'info',
+            text1: t('Product not found'),
+            text2: t('Search manually or add custom product'),
+          });
+        }
+
+        if (!multiScanMode) {
+          setShowCamera(false);
+          setShowBarcodeModal(false);
+        }
+
+        if (multiScanMode) {
+          setTimeout(() => setCanScanBarcode(true), SCAN_REENABLE_DELAY_MS);
+        }
+      }, SCAN_PREVIEW_DELAY_MS);
     } catch (error) {
       console.error('[ProductSelection] Barcode scan error:', error);
       Toast.show({
@@ -912,11 +979,7 @@ export default function ProductSelectionModal() {
         text1: t('Scan error'),
         text2: t('Please try again'),
       });
-    }
-
-    // Re-enable scanning after a short delay when multi-scan is on
-    if (multiScanMode) {
-      setTimeout(() => setCanScanBarcode(true), SCAN_REENABLE_DELAY_MS);
+      setCanScanBarcode(true);
     }
   };
 
@@ -1118,36 +1181,42 @@ export default function ProductSelectionModal() {
           costPrice: item.costPrice,
           quantity: item.quantity,
         })),
-          subtotal,
-          taxRate,
-          tax: taxAmount,
-          total: totalDue,
-          creditUsed: creditApplied,
-          amountAfterCredit: remainingBalance,
-          paidAmount: paidForRecord,
-          changeAmount: 0,
-          remainingBalance: remainingBalance,
-          paymentMethod,
-          dueDate: undefined,
-          date,
-          time,
-          status,
-          items: saleItemsCount,
-          amount: totalDue,
-        });
+        subtotal,
+        taxRate,
+        tax: taxAmount,
+        total: totalDue,
+        creditUsed: creditApplied,
+        amountAfterCredit: remainingBalance,
+        paidAmount: paidForRecord,
+        changeAmount: 0,
+        remainingBalance: remainingBalance,
+        paymentMethod,
+        dueDate: undefined,
+        date,
+        time,
+        status,
+        items: saleItemsCount,
+        amount: totalDue,
+      });
 
-        resetSale();
-        setRecentProducts([]);
-        db.setSetting('pos.recentProducts', []).catch(console.warn);
-        setRandomPurchaseInput('');
-        setShowRandomPurchase(false);
-        setDiscountInput('');
-        setTaxInput('');
-        Toast.show({
-          type: 'success',
-          text1: t('Sale completed'),
-          text2: `${t('Amount')}: ${totalDue.toLocaleString()}`,
+      resetSale();
+      setRecentProducts([]);
+      db.setSetting('pos.recentProducts', []).catch(console.warn);
+      setRandomPurchaseInput('');
+      setShowRandomPurchase(false);
+      setDiscountInput('');
+      setTaxInput('');
+      Toast.show({
+        type: 'success',
+        text1: t('Sale completed'),
+        text2: `${t('Amount')}: ${totalDue.toLocaleString()}`,
+      });
+      setTimeout(() => {
+        router.replace({
+          pathname: '/modals/sale-success',
+          params: { saleId: saleId.toString() },
         });
+      }, 50);
     } catch (error) {
       console.error('[ProductSelection] Quick payment failed', error);
       Toast.show({ type: 'error', text1: t('Something went wrong') });
@@ -1282,7 +1351,7 @@ export default function ProductSelectionModal() {
     setIsCompletingSale(true);
     try {
       const { saleInput, savedTotal, savedItems } = buildSalePayload();
-      await addSale(saleInput);
+      const saleId = await addSale(saleInput);
 
       resetSale();
       setQuickPaymentEnabled(false);
@@ -1297,6 +1366,12 @@ export default function ProductSelectionModal() {
           .replace('{items}', String(savedItems))
           .replace('{amount}', savedTotal.toLocaleString()),
       });
+      setTimeout(() => {
+        router.replace({
+          pathname: '/modals/sale-success',
+          params: { saleId: saleId.toString() },
+        });
+      }, 50);
     } catch (error) {
       console.error('[ProductSelection] Complete sale failed', error);
       Toast.show({ type: 'error', text1: t('Something went wrong') });
@@ -1305,7 +1380,7 @@ export default function ProductSelectionModal() {
     }
   };
 
-  const handleNetworkPrint = async (saleRecord: any) => {
+  const handleNetworkPrint = async (saleRecord: any): Promise<number | null> => {
     try {
       const networkPrinters = (await db.listPrinterProfiles()).filter(
         (printer) => printer.type === 'ESC_POS'
@@ -1320,47 +1395,49 @@ export default function ProductSelectionModal() {
         return;
       }
 
-      const receiptData = mapSaleToReceiptData(saleRecord, {
+      const receiptData = await applyDeveloperFooter(mapSaleToReceiptData(saleRecord, {
         storeName,
         address: shopProfile?.address,
         phone: shopProfile?.phoneNumber,
         footer: t('Thank you for your business!'),
-      });
+      }));
 
       const selectPrinter = async (printer: NetworkPrinterConfig) => {
-        await enqueueReceiptPrint(printer, receiptData);
+        const jobId = await enqueueReceiptPrint(printer, receiptData);
         Toast.show({
           type: 'success',
           text1: t('Receipt queued'),
           text2: `${printer.name} (${printer.ip})`,
         });
+        return jobId;
       };
 
       const defaultPrinter = networkPrinters.find((printer) => printer.isDefault);
       if (defaultPrinter) {
-        await selectPrinter(defaultPrinter);
-        return;
+        return await selectPrinter(defaultPrinter);
       }
 
       if (networkPrinters.length === 1) {
-        await selectPrinter(networkPrinters[0]);
-        return;
+        return await selectPrinter(networkPrinters[0]);
       }
 
-      Alert.alert(
-        t('Select Printer'),
-        t('Choose a network printer'),
-        [
-          ...networkPrinters.map((printer) => ({
-            text: `${printer.name} (${printer.ip})`,
-            onPress: () => selectPrinter(printer),
-          })),
-          { text: t('Cancel'), style: 'cancel' },
-        ]
-      );
+      return await new Promise((resolve) => {
+        Alert.alert(
+          t('Select Printer'),
+          t('Choose a network printer'),
+          [
+            ...networkPrinters.map((printer) => ({
+              text: `${printer.name} (${printer.ip})`,
+              onPress: async () => resolve(await selectPrinter(printer)),
+            })),
+            { text: t('Cancel'), style: 'cancel', onPress: () => resolve(null) },
+          ]
+        );
+      });
     } catch (error) {
       console.error('Network print error:', error);
       Toast.show({ type: 'error', text1: t('Failed to print') });
+      return null;
     }
   };
 
@@ -1392,7 +1469,16 @@ export default function ProductSelectionModal() {
           .replace('{amount}', savedTotal.toLocaleString()),
       });
 
-      await handleNetworkPrint(printableSale);
+      const jobId = await handleNetworkPrint(printableSale);
+      setTimeout(() => {
+        router.replace({
+          pathname: '/modals/sale-success',
+          params: {
+            saleId: saleId.toString(),
+            ...(jobId ? { printJobId: String(jobId) } : {}),
+          },
+        });
+      }, 50);
     } catch (error) {
       console.error('[ProductSelection] Complete sale + print failed', error);
       Toast.show({ type: 'error', text1: t('Something went wrong') });
@@ -2234,8 +2320,10 @@ export default function ProductSelectionModal() {
         visible={showBarcodeModal}
         animationType="fade"
         onRequestClose={() => {
+          clearScanPreview();
           setShowBarcodeModal(false);
           setShowCamera(false);
+          setCanScanBarcode(false);
         }}
       >
         <View style={styles.barcodeModalOverlay}>
@@ -2301,16 +2389,55 @@ export default function ProductSelectionModal() {
                     </TouchableOpacity>
                     <View style={[styles.scanFrame, scanFrameStyle]} />
                   </View>
+                  {scanPreview && (
+                    <View style={styles.scanPreviewOverlay}>
+                      <View style={styles.scanPreviewCard}>
+                        <Text style={styles.scanPreviewTitle}>{t('Detected code')}</Text>
+                        <View style={styles.scanPreviewRow}>
+                          <Text style={styles.scanPreviewLabel}>{t('Barcode')}</Text>
+                          <Text style={styles.scanPreviewValue} numberOfLines={1}>
+                            {scanPreview.barcode}
+                          </Text>
+                        </View>
+                        <View style={styles.scanPreviewRow}>
+                          <Text style={styles.scanPreviewLabel}>{t('Product')}</Text>
+                          <Text style={styles.scanPreviewValue} numberOfLines={1}>
+                            {scanPreview.productName}
+                          </Text>
+                        </View>
+                        <View style={styles.scanPreviewRow}>
+                          <Text style={styles.scanPreviewLabel}>{t('Price')}</Text>
+                          <Text style={styles.scanPreviewValue} numberOfLines={1}>
+                            {scanPreview.priceLabel}
+                          </Text>
+                        </View>
+                        <View style={styles.scanPreviewActions}>
+                          <TouchableOpacity
+                            style={styles.scanPreviewCancelButton}
+                            onPress={cancelScanPreview}
+                            activeOpacity={0.8}
+                          >
+                            <Text style={styles.scanPreviewCancelText}>{t('Cancel')}</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  )}
                 </View>
                   <TouchableOpacity
                     style={styles.manualToggleButton}
-                    onPress={() => setShowCamera(false)}
+                    onPress={() => {
+                      clearScanPreview();
+                      setShowCamera(false);
+                      setCanScanBarcode(false);
+                    }}
                   >
                     <Text style={styles.manualToggleText}>{t('Enter manually instead')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.barcodeModalButton, styles.barcodeModalButtonCancel, { marginTop: 16 }]}
                     onPress={() => {
+                      clearScanPreview();
                       setShowCamera(false);
                       setShowBarcodeModal(false);
                       setCanScanBarcode(false);
@@ -3751,6 +3878,65 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: 'transparent',
   },
+  scanPreviewOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  scanPreviewCard: {
+    width: '100%',
+    maxWidth: 320,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  scanPreviewTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0f172a',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  scanPreviewRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  scanPreviewLabel: {
+    fontSize: 12,
+    color: '#64748b',
+  },
+  scanPreviewValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0f172a',
+    marginLeft: 10,
+    flexShrink: 1,
+    textAlign: 'right',
+  },
+  scanPreviewActions: {
+    marginTop: 12,
+    alignItems: 'center',
+  },
+  scanPreviewCancelButton: {
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#fee2e2',
+  },
+  scanPreviewCancelText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#b91c1c',
+  },
   scanMethodButton: {
     backgroundColor: '#eff6ff',
     borderWidth: 2,
@@ -3992,8 +4178,3 @@ const styles = StyleSheet.create({
     color: '#1f2937',
   },
 });
-
-
-
-
-

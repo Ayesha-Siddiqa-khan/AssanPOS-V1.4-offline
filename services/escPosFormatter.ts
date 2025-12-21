@@ -23,11 +23,6 @@ const COMMANDS = {
   DRAWER_KICK: [ESC, 0x70, 0x00, 0x19, 0xfa],
 };
 
-const DEVELOPER_FOOTER_LINES = [
-  'Developed by Abees',
-  'https://www.abees.me/ +923066987888',
-];
-
 const textEncoder = typeof TextEncoder !== 'undefined' ? new TextEncoder() : null;
 
 const lineWidthForPaper = (paperWidthMM: 58 | 80) => (paperWidthMM === 80 ? 42 : 32);
@@ -56,6 +51,16 @@ function encodeText(text: string, encoding: PrinterEncoding): number[] {
 function appendLine(target: number[], text: string, encoding: PrinterEncoding) {
   target.push(...encodeText(text, encoding));
   target.push(...COMMANDS.FEED_LINE);
+}
+
+function appendWrappedLines(
+  target: number[],
+  text: string,
+  width: number,
+  encoding: PrinterEncoding
+) {
+  const lines = wrapText(text, width);
+  lines.forEach((line) => appendLine(target, line, encoding));
 }
 
 function wrapText(text: string, width: number): string[] {
@@ -211,7 +216,11 @@ export function buildEscPosReceipt(
   bytes.push(...COMMANDS.ALIGN_CENTER);
   appendLine(bytes, '');
   appendLine(bytes, receiptData.footer, profile.encoding);
-  DEVELOPER_FOOTER_LINES.forEach((line) => appendLine(bytes, line, profile.encoding));
+  if (receiptData.developerFooterLines && receiptData.developerFooterLines.length > 0) {
+    receiptData.developerFooterLines.forEach((line) =>
+      appendWrappedLines(bytes, line, width, profile.encoding)
+    );
+  }
 
   bytes.push(...COMMANDS.FEED_LINE);
   bytes.push(...COMMANDS.FEED_LINE);

@@ -52,6 +52,7 @@ export interface ReceiptData {
   creditUsed?: number;
   paymentMethod: string;
   footer: string;
+  developerFooterLines?: string[];
 }
 
 export interface PrinterStatus {

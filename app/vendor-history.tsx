@@ -12,6 +12,7 @@ import { db } from '../lib/database';
 import { shareTextViaWhatsApp } from '../lib/share';
 import { enqueueReceiptPrint } from '../services/printQueueService';
 import { mapPurchaseToReceiptData } from '../services/receiptMapper';
+import { applyDeveloperFooter } from '../services/receiptPreferences';
 import {
   createReceiptPdf,
   generateReceiptHtml,
@@ -352,12 +353,12 @@ export default function VendorPurchaseHistoryScreen() {
 
   const printPurchaseToNetworkPrinter = async (purchase: any, printer: NetworkPrinterConfig) => {
     try {
-      const receiptData = mapPurchaseToReceiptData(purchase, {
+      const receiptData = await applyDeveloperFooter(mapPurchaseToReceiptData(purchase, {
         storeName,
         address: shopProfile?.address,
         phone: shopProfile?.phoneNumber,
         footer: t('Thank you for your business!'),
-      });
+      }));
 
       await enqueueReceiptPrint(printer, receiptData);
       Toast.show({

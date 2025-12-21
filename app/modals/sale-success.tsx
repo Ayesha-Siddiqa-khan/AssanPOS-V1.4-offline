@@ -12,8 +12,9 @@ import { formatDateTimeForDisplay, formatTimeForDisplay } from '../../lib/date';
 import { db } from '../../lib/database';
 import { shareTextViaWhatsApp } from '../../lib/share';
 import Toast from 'react-native-toast-message';
-import { enqueueReceiptPrint } from '../../services/printQueueService';
+import { enqueueReceiptPrint, getPrintJob, processPrintQueue, retryPrintJob } from '../../services/printQueueService';
 import { mapSaleToReceiptData } from '../../services/receiptMapper';
+import { applyDeveloperFooter } from '../../services/receiptPreferences';
 import {
   scanForPrinters,
   printReceiptViaBluetooth,
@@ -25,7 +26,7 @@ import {
   type StoreProfile,
   type PrinterDevice,
 } from '../../services/receiptService';
-import type { NetworkPrinterConfig } from '../../types/printer';
+import type { NetworkPrinterConfig, PrintJob } from '../../types/printer';
 
 export default function SaleSuccessModal() {
   const router = useRouter();
@@ -37,9 +38,12 @@ export default function SaleSuccessModal() {
     saleId?: string;
     amountReceived?: string;
     amountPaidDisplay?: string;
+    printJobId?: string;
   }>();
 
   const numericId = saleId ? Number(saleId) : null;
+  const numericPrintJobId =
+    printJobId && Number.isFinite(Number(printJobId)) ? Number(printJobId) : null;
 
   const sale = useMemo(
     () => (numericId ? sales.find((entry) => entry.id === numericId) : undefined),
@@ -54,6 +58,9 @@ export default function SaleSuccessModal() {
   const [emailModalVisible, setEmailModalVisible] = useState(false);
   const [emailAddress, setEmailAddress] = useState('');
   const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [queuedPrintJobId, setQueuedPrintJobId] = useState<number | null>(numericPrintJobId);
+  const [printJobStatus, setPrintJobStatus] = useState<PrintJob | null>(null);
+  const [isLoadingPrintStatus, setIsLoadingPrintStatus] = useState(false);
 
   const doneButtonRef = useRef<any>(null);
 
@@ -67,12 +74,51 @@ export default function SaleSuccessModal() {
   }, [sale]);
 
   useEffect(() => {
+    if (numericPrintJobId) {
+      setQueuedPrintJobId(numericPrintJobId);
+    }
+  }, [numericPrintJobId]);
+
+  useEffect(() => {
     // Auto-focus Done button after a short delay
     const timer = setTimeout(() => {
       doneButtonRef.current?.focus?.();
     }, 500);
     return () => clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (!queuedPrintJobId) {
+      setPrintJobStatus(null);
+      return;
+    }
+    let mounted = true;
+    const loadStatus = async (showSpinner = false) => {
+      if (!mounted) return;
+      if (showSpinner) {
+        setIsLoadingPrintStatus(true);
+      }
+      try {
+        const job = await getPrintJob(queuedPrintJobId);
+        if (mounted) {
+          setPrintJobStatus((job as PrintJob | null) ?? null);
+        }
+      } catch (error) {
+        console.error('Failed to load print job status', error);
+      } finally {
+        if (mounted && showSpinner) {
+          setIsLoadingPrintStatus(false);
+        }
+      }
+    };
+
+    loadStatus(true);
+    const timer = setInterval(() => loadStatus(false), 3000);
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
+  }, [queuedPrintJobId]);
 
   if (!sale) {
     return (
@@ -255,7 +301,7 @@ export default function SaleSuccessModal() {
     }
   };
 
-  const handleNetworkPrint = async () => {
+  const handleNetworkPrint = async (): Promise<number | null> => {
     try {
       const networkPrinters = (await db.listPrinterProfiles()).filter(
         (printer) => printer.type === 'ESC_POS'
@@ -267,44 +313,66 @@ export default function SaleSuccessModal() {
           t('Add a network printer in Settings first'),
           [{ text: t('OK') }]
         );
-        return;
+        return null;
       }
 
-      const receiptData = mapSaleToReceiptData(sale, {
+      const receiptData = await applyDeveloperFooter(mapSaleToReceiptData(sale, {
         storeName,
         address: shopProfile?.address,
         phone: shopProfile?.phoneNumber,
         footer: t('Thank you for your business!'),
-      });
+      }));
 
       const selectPrinter = async (printer: NetworkPrinterConfig) => {
-        await enqueueReceiptPrint(printer, receiptData);
+        const jobId = await enqueueReceiptPrint(printer, receiptData);
         Toast.show({
           type: 'success',
           text1: t('Receipt queued'),
           text2: `${printer.name} (${printer.ip})`,
         });
+        setPrintJobStatus(null);
+        setQueuedPrintJobId(jobId);
+        return jobId;
       };
 
       if (networkPrinters.length === 1) {
-        await selectPrinter(networkPrinters[0]);
-        return;
+        return await selectPrinter(networkPrinters[0]);
       }
 
-      Alert.alert(
-        t('Select Printer'),
-        t('Choose a network printer'),
-        [
-          ...networkPrinters.map((printer) => ({
-            text: `${printer.name} (${printer.ip})`,
-            onPress: () => selectPrinter(printer),
-          })),
-          { text: t('Cancel'), style: 'cancel' },
-        ]
-      );
+      return await new Promise((resolve) => {
+        Alert.alert(
+          t('Select Printer'),
+          t('Choose a network printer'),
+          [
+            ...networkPrinters.map((printer) => ({
+              text: `${printer.name} (${printer.ip})`,
+              onPress: async () => resolve(await selectPrinter(printer)),
+            })),
+            { text: t('Cancel'), style: 'cancel', onPress: () => resolve(null) },
+          ]
+        );
+      });
     } catch (error) {
       console.error('Network print error:', error);
       Toast.show({ type: 'error', text1: t('Failed to print') });
+      return null;
+    }
+  };
+
+  const handleRetryPrintJob = async () => {
+    if (!queuedPrintJobId) {
+      return;
+    }
+    setIsLoadingPrintStatus(true);
+    try {
+      await retryPrintJob(queuedPrintJobId);
+      await processPrintQueue();
+      Toast.show({ type: 'success', text1: t('Retry queued') });
+    } catch (error) {
+      console.error('Retry print job failed', error);
+      Toast.show({ type: 'error', text1: t('Unable to retry print') });
+    } finally {
+      setIsLoadingPrintStatus(false);
     }
   };
 
@@ -338,6 +406,58 @@ export default function SaleSuccessModal() {
       console.error('Failed to share receipt', error);
       Toast.show({ type: 'error', text1: t('WhatsApp share failed') });
     }
+  };
+
+  const renderPrintStatus = () => {
+    if (!queuedPrintJobId) {
+      return null;
+    }
+
+    const status = printJobStatus?.status ?? 'pending';
+    const isFailed = status === 'failed';
+    const isSuccess = status === 'success';
+    const isActive = status === 'pending' || status === 'printing' || status === 'retrying';
+
+    const title = isFailed
+      ? t('Print failed')
+      : isSuccess
+      ? t('Print completed')
+      : t('Print queued');
+
+    const subtitle = printJobStatus?.lastError
+      ? printJobStatus.lastError
+      : isActive
+      ? t('Sending receipt to printer...')
+      : t('Receipt sent to printer.');
+
+    return (
+      <View style={styles.printStatusCard}>
+        <View style={styles.printStatusHeader}>
+          <View style={styles.printStatusText}>
+            <Text style={styles.printStatusTitle}>{title}</Text>
+            <Text style={styles.printStatusSubtitle}>{subtitle}</Text>
+          </View>
+          {isLoadingPrintStatus && (
+            <ActivityIndicator size="small" color="#2563eb" />
+          )}
+        </View>
+        <View style={styles.printStatusActions}>
+          {isFailed && (
+            <TouchableOpacity style={styles.printStatusButton} onPress={handleRetryPrintJob}>
+              <Ionicons name="refresh-outline" size={16} color="#2563eb" />
+              <Text style={styles.printStatusButtonText}>{t('Retry')}</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={styles.printStatusButton}
+            onPress={() => router.push('/print-center')}
+          >
+            <Ionicons name="print-outline" size={16} color="#2563eb" />
+            <Text style={styles.printStatusButtonText}>{t('Print Center')}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
   };
 
   return (
@@ -448,6 +568,8 @@ export default function SaleSuccessModal() {
 
           <Text style={styles.thankYou}>{t('Thank you for your business!')}</Text>
         </View>
+
+        {renderPrintStatus()}
 
         <View style={styles.actionStack}>
           <Button
@@ -713,6 +835,54 @@ const styles = StyleSheet.create({
     color: '#2563eb',
     textAlign: 'center',
     marginTop: 4,
+  },
+  printStatusCard: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    gap: 10,
+  },
+  printStatusHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  printStatusText: {
+    flex: 1,
+    gap: 2,
+  },
+  printStatusTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  printStatusSubtitle: {
+    fontSize: 12,
+    color: '#64748b',
+  },
+  printStatusActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  printStatusButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+    backgroundColor: '#eff6ff',
+  },
+  printStatusButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#2563eb',
   },
   actionButton: {
     flexDirection: 'row',

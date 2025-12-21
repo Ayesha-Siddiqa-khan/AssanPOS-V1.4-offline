@@ -13,6 +13,7 @@ import { syncService, synchronizeNow } from '../services/syncService';
 import { notifyLowStock } from '../services/notificationService';
 import { registerExportTask } from '../services/importExportService';
 import { registerAutomatedBackups, getBackupScheduleSetting, unregisterAutomatedBackups } from '../services/backupService';
+import Toast from 'react-native-toast-message';
 
 interface Customer {
   id: number;
@@ -57,6 +58,20 @@ interface Product {
   unit?: string;
   costPrice?: number;
 }
+
+type StockAlert = {
+  id: string;
+  productId: number;
+  variantId?: number | null;
+  name: string;
+  variantName?: string;
+  requestedQty: number;
+  previousStock: number;
+  createdAt: string;
+};
+
+const STOCK_ALERTS_KEY = 'stock.alerts';
+const MAX_STOCK_ALERTS = 50;
 
 interface CreditTransaction {
   id: number;
@@ -572,12 +587,45 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const appendStockAlerts = async (alerts: StockAlert[]) => {
+    try {
+      const existing = (await db.getSetting(STOCK_ALERTS_KEY)) as StockAlert[] | null;
+      const normalizedExisting = Array.isArray(existing) ? existing : [];
+      const next = [...alerts, ...normalizedExisting].slice(0, MAX_STOCK_ALERTS);
+      await db.setSetting(STOCK_ALERTS_KEY, next);
+    } catch (error) {
+      console.error('[StockAlert] Failed to persist alerts', error);
+    }
+  };
+
   // Sale methods
   const addSale = async (sale: Omit<Sale, 'id'>) => {
     try {
       console.log('[addSale] Starting sale transaction', { cartItems: sale.cart.length });
       
       const productCache = new Map<number, Product>();
+      const stockAlerts: StockAlert[] = [];
+
+      const recordStockAlert = (params: {
+        productId: number;
+        variantId?: number | null;
+        name: string;
+        variantName?: string;
+        requestedQty: number;
+        previousStock: number;
+      }) => {
+        const timestamp = new Date().toISOString();
+        stockAlerts.push({
+          id: `${params.productId}-${params.variantId ?? 'base'}-${timestamp}`,
+          productId: params.productId,
+          variantId: params.variantId ?? null,
+          name: params.name,
+          variantName: params.variantName,
+          requestedQty: params.requestedQty,
+          previousStock: params.previousStock,
+          createdAt: timestamp,
+        });
+      };
 
       const getProductSnapshot = (productId: number): Product | null => {
         if (productCache.has(productId)) {
@@ -612,8 +660,20 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
             if (productSnapshot.hasVariants && item.variantId && productSnapshot.variants) {
               const variant = productSnapshot.variants.find((v) => v.id === item.variantId);
               if (variant) {
-                const oldStock = variant.stock || 0;
-                variant.stock = Math.max(0, oldStock - item.quantity);
+                const oldStock =
+                  typeof variant.stock === 'number' ? variant.stock : 0;
+                const nextStock = oldStock - item.quantity;
+                if (nextStock < 0) {
+                  recordStockAlert({
+                    productId: item.productId,
+                    variantId: item.variantId,
+                    name: item.name,
+                    variantName: item.variantName,
+                    requestedQty: item.quantity,
+                    previousStock: oldStock,
+                  });
+                }
+                variant.stock = Math.max(0, nextStock);
                 console.log('[addSale] Updated variant stock', { variantId: item.variantId, oldStock, newStock: variant.stock });
               } else {
                 console.warn('[addSale] Variant not found', {
@@ -622,8 +682,19 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
                 });
               }
             } else {
-              const oldStock = productSnapshot.stock || 0;
-              productSnapshot.stock = Math.max(0, oldStock - item.quantity);
+              const oldStock =
+                typeof productSnapshot.stock === 'number' ? productSnapshot.stock : 0;
+              const nextStock = oldStock - item.quantity;
+              if (nextStock < 0) {
+                recordStockAlert({
+                  productId: item.productId,
+                  variantId: null,
+                  name: item.name,
+                  requestedQty: item.quantity,
+                  previousStock: oldStock,
+                });
+              }
+              productSnapshot.stock = Math.max(0, nextStock);
               console.log('[addSale] Updated product stock', { productId: item.productId, oldStock, newStock: productSnapshot.stock });
             }
 
@@ -707,6 +778,14 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
 
       console.log('[addSale] Refreshing data');
       await refreshData();
+      if (stockAlerts.length > 0) {
+        await appendStockAlerts(stockAlerts);
+        Toast.show({
+          type: 'error',
+          text1: 'Stock alert',
+          text2: `${stockAlerts.length} item(s) sold below available stock.`,
+        });
+      }
       console.log('[addSale] Sale completed successfully');
       return saleId;
     } catch (error) {

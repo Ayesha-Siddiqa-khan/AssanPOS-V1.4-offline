@@ -29,6 +29,7 @@ import { spacing, radii, textStyles } from '../../theme/tokens';
 import { shareTextViaWhatsApp } from '../../lib/share';
 import { enqueueReceiptPrint } from '../../services/printQueueService';
 import { mapSaleToReceiptData } from '../../services/receiptMapper';
+import { applyDeveloperFooter } from '../../services/receiptPreferences';
 import {
   createReceiptPdf,
   generateReceiptHtml,
@@ -341,12 +342,12 @@ export default function SalesScreen() {
 
   const printToNetworkPrinter = async (sale: any, printer: NetworkPrinterConfig) => {
     try {
-      const receiptData = mapSaleToReceiptData(sale, {
+      const receiptData = await applyDeveloperFooter(mapSaleToReceiptData(sale, {
         storeName,
         address: shopProfile?.address,
         phone: shopProfile?.phoneNumber,
         footer: t('Thank you for your business!'),
-      });
+      }));
 
       await enqueueReceiptPrint(printer, receiptData);
       Toast.show({

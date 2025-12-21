@@ -24,6 +24,7 @@ import { useLanguage } from '../../contexts/LanguageContext';
 import { fuzzySearch } from '../../lib/searchUtils';
 import { useData } from '../../contexts/DataContext';
 import { usePos } from '../../contexts/PosContext';
+import { useShop } from '../../contexts/ShopContext';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
@@ -31,6 +32,9 @@ import { Badge } from '../../components/ui/Badge';
 import { ScanModeToggle, ScanMode } from '../../components/ui/ScanModeToggle';
 import { db } from '../../lib/database';
 import { formatDateForStorage } from '../../lib/date';
+import { enqueueReceiptPrint } from '../../services/printQueueService';
+import { mapSaleToReceiptData } from '../../services/receiptMapper';
+import type { NetworkPrinterConfig } from '../../types/printer';
 
 const PRODUCT_SELECTION_BARCODE_TYPES: BarcodeType[] = ['ean13', 'code128', 'upc_a', 'upc_e', 'code39', 'code93'];
 const SCAN_REENABLE_DELAY_MS = 4000;
@@ -56,6 +60,7 @@ export default function ProductSelectionModal() {
   const { width, height } = useWindowDimensions();
   const isWideLayout = Platform.OS === 'web' && width > 520;
   const { t } = useLanguage();
+  const { profile: shopProfile } = useShop();
   const { products, customers, addSale } = useData();
 
   const {
@@ -98,6 +103,7 @@ export default function ProductSelectionModal() {
   const [voiceText, setVoiceText] = useState('');
   const [isQuickPaying, setIsQuickPaying] = useState(false);
   const [isCompletingSale, setIsCompletingSale] = useState(false);
+  const [isPrintingSale, setIsPrintingSale] = useState(false);
   const [discountInput, setDiscountInput] = useState(discount === 0 ? '' : discount.toString());
   const [taxInput, setTaxInput] = useState(taxRate === 0 ? '' : taxRate.toString());
   const [randomPurchaseInput, setRandomPurchaseInput] = useState(''); // ad-hoc amount added to subtotal
@@ -567,6 +573,7 @@ export default function ProductSelectionModal() {
   const hasExtraOnly = cart.length === 0 && randomPurchaseAmount > 0;
   const saleItemsCount = itemsCount > 0 ? itemsCount : hasExtraOnly ? 1 : 0;
   const canCheckout = totalDue > 0 && (cart.length > 0 || hasExtraOnly);
+  const isCheckoutBusy = isQuickPaying || isCompletingSale || isPrintingSale;
 
   const customerOptions = useMemo(
     () =>
@@ -580,6 +587,9 @@ export default function ProductSelectionModal() {
   const selectedCustomer = selectedCustomerId
     ? customers.find((customer) => customer.id === selectedCustomerId)
     : undefined;
+  const normalizedShopName = shopProfile.shopName?.trim();
+  const storeName =
+    normalizedShopName && normalizedShopName.length > 0 ? normalizedShopName : t('Your Store');
 
   const searchActionOptions = useMemo(
     () => [
@@ -1158,6 +1168,108 @@ export default function ProductSelectionModal() {
     router.push('/modals/payment');
   };
 
+  const buildSalePayload = () => {
+    const now = new Date();
+    const date = formatDateForStorage(now);
+    const time = now.toTimeString().slice(0, 8);
+    const creditAvailable = Math.max(selectedCustomer?.credit ?? 0, 0);
+    const creditApplied =
+      paymentStatus === 'due' ? Math.min(totalDue, creditAvailable) : 0;
+    const remainingBalance =
+      paymentStatus === 'due' ? Math.max(totalDue - creditApplied, 0) : 0;
+    const paidForRecord = paymentStatus === 'net' ? totalDue : creditApplied;
+    const paymentMethod =
+      paymentStatus === 'due'
+        ? creditApplied > 0
+          ? 'Customer Credit'
+          : 'Cash'
+        : 'Cash';
+    const status = paymentStatus === 'due' && remainingBalance > 0 ? 'Due' : 'Paid';
+    const walkInName = walkInCustomerName.trim();
+    const customerPayload = selectedCustomer
+      ? {
+          id: selectedCustomer.id,
+          name: selectedCustomer.name,
+          phone: selectedCustomer.phone,
+        }
+      : walkInName
+      ? {
+          name: walkInName,
+          type: 'walk-in',
+        }
+      : undefined;
+
+    const syntheticCart =
+      cart.length > 0
+        ? cart
+        : hasExtraOnly
+        ? [
+            {
+              productId: -1,
+              variantId: null,
+              name: t('Extra amount'),
+              variantName: undefined,
+              variantAttributes: null,
+              price: randomPurchaseAmount,
+              costPrice: 0,
+              quantity: 1,
+            },
+          ]
+        : [];
+
+    const cartPayload = syntheticCart.map((item) => ({
+      productId: item.productId,
+      variantId: item.variantId ?? null,
+      name: item.name,
+      variantName: item.variantName,
+      variantAttributes: item.variantAttributes ?? null,
+      price: item.price,
+      costPrice: item.costPrice,
+      quantity: item.quantity,
+    }));
+
+    return {
+      saleInput: {
+        customer: customerPayload,
+        cart: cartPayload,
+        subtotal,
+        taxRate,
+        tax: taxAmount,
+        total: totalDue,
+        creditUsed: creditApplied,
+        amountAfterCredit: remainingBalance,
+        paidAmount: paidForRecord,
+        changeAmount: 0,
+        remainingBalance,
+        paymentMethod,
+        dueDate: undefined,
+        date,
+        time,
+        status,
+        items: saleItemsCount,
+        amount: totalDue,
+      },
+      saleRecord: {
+        id: 0,
+        customer: customerPayload,
+        cart: cartPayload,
+        subtotal,
+        tax: taxAmount,
+        total: totalDue,
+        creditUsed: creditApplied,
+        amountAfterCredit: remainingBalance,
+        paidAmount: paidForRecord,
+        changeAmount: 0,
+        remainingBalance,
+        paymentMethod,
+        date,
+        time,
+      },
+      savedTotal: totalDue,
+      savedItems: saleItemsCount,
+    };
+  };
+
   const handleCompleteSale = async () => {
     if (!canCheckout) {
       Toast.show({ type: 'error', text1: t('Add an item or extra amount to continue') });
@@ -1169,92 +1281,13 @@ export default function ProductSelectionModal() {
     applyQuantityInputsToCart();
     setIsCompletingSale(true);
     try {
-      const now = new Date();
-      const date = formatDateForStorage(now);
-      const time = now.toTimeString().slice(0, 8);
-      const creditAvailable = Math.max(selectedCustomer?.credit ?? 0, 0);
-      const creditApplied =
-        paymentStatus === 'due' ? Math.min(totalDue, creditAvailable) : 0;
-      const remainingBalance = paymentStatus === 'due' ? Math.max(totalDue - creditApplied, 0) : 0;
-      const paymentMethod =
-        paymentStatus === 'due'
-          ? creditApplied > 0
-            ? 'Customer Credit'
-            : 'Cash'
-          : 'Cash';
-      const status = paymentStatus === 'due' && remainingBalance > 0 ? 'Due' : 'Paid';
-      const walkInName = walkInCustomerName.trim();
-      const customerPayload = selectedCustomer
-        ? {
-            id: selectedCustomer.id,
-            name: selectedCustomer.name,
-            phone: selectedCustomer.phone,
-          }
-        : walkInName
-        ? {
-            name: walkInName,
-            type: 'walk-in',
-          }
-        : undefined;
-
-      const syntheticCart =
-        cart.length > 0
-          ? cart
-          : hasExtraOnly
-          ? [
-              {
-                productId: -1,
-                variantId: null,
-                name: t('Extra amount'),
-                variantName: undefined,
-                variantAttributes: null,
-                price: randomPurchaseAmount,
-                costPrice: 0,
-                quantity: 1,
-              },
-            ]
-          : [];
-
-      const remainingForRecord = remainingBalance;
-      const paidForRecord = paymentStatus === 'net' ? totalDue : creditApplied;
-
-      await addSale({
-        customer: customerPayload,
-        cart: syntheticCart.map((item) => ({
-          productId: item.productId,
-          variantId: item.variantId ?? null,
-          name: item.name,
-          variantName: item.variantName,
-          variantAttributes: item.variantAttributes ?? null,
-          price: item.price,
-          costPrice: item.costPrice,
-          quantity: item.quantity,
-        })),
-          subtotal,
-          taxRate,
-          tax: taxAmount,
-          total: totalDue,
-          creditUsed: creditApplied,
-          amountAfterCredit: remainingForRecord,
-          paidAmount: paidForRecord,
-          changeAmount: 0,
-          remainingBalance: remainingForRecord,
-          paymentMethod,
-          dueDate: undefined,
-          date,
-          time,
-          status,
-          items: saleItemsCount,
-          amount: totalDue,
-        });
-
-        const savedTotal = totalDue;
-        const savedItems = saleItemsCount;
+      const { saleInput, savedTotal, savedItems } = buildSalePayload();
+      await addSale(saleInput);
 
       resetSale();
       setQuickPaymentEnabled(false);
       setRandomPurchaseInput('');
-        setShowRandomPurchase(false);
+      setShowRandomPurchase(false);
       setDiscountInput('');
       setTaxInput('');
       Toast.show({
@@ -1269,6 +1302,102 @@ export default function ProductSelectionModal() {
       Toast.show({ type: 'error', text1: t('Something went wrong') });
     } finally {
       setIsCompletingSale(false);
+    }
+  };
+
+  const handleNetworkPrint = async (saleRecord: any) => {
+    try {
+      const networkPrinters = (await db.listPrinterProfiles()).filter(
+        (printer) => printer.type === 'ESC_POS'
+      );
+
+      if (networkPrinters.length === 0) {
+        Alert.alert(
+          t('No Network Printers'),
+          t('Add a network printer in Settings first'),
+          [{ text: t('OK') }]
+        );
+        return;
+      }
+
+      const receiptData = mapSaleToReceiptData(saleRecord, {
+        storeName,
+        address: shopProfile?.address,
+        phone: shopProfile?.phoneNumber,
+        footer: t('Thank you for your business!'),
+      });
+
+      const selectPrinter = async (printer: NetworkPrinterConfig) => {
+        await enqueueReceiptPrint(printer, receiptData);
+        Toast.show({
+          type: 'success',
+          text1: t('Receipt queued'),
+          text2: `${printer.name} (${printer.ip})`,
+        });
+      };
+
+      const defaultPrinter = networkPrinters.find((printer) => printer.isDefault);
+      if (defaultPrinter) {
+        await selectPrinter(defaultPrinter);
+        return;
+      }
+
+      if (networkPrinters.length === 1) {
+        await selectPrinter(networkPrinters[0]);
+        return;
+      }
+
+      Alert.alert(
+        t('Select Printer'),
+        t('Choose a network printer'),
+        [
+          ...networkPrinters.map((printer) => ({
+            text: `${printer.name} (${printer.ip})`,
+            onPress: () => selectPrinter(printer),
+          })),
+          { text: t('Cancel'), style: 'cancel' },
+        ]
+      );
+    } catch (error) {
+      console.error('Network print error:', error);
+      Toast.show({ type: 'error', text1: t('Failed to print') });
+    }
+  };
+
+  const handleCompleteSaleAndPrint = async () => {
+    if (!canCheckout) {
+      Toast.show({ type: 'error', text1: t('Add an item or extra amount to continue') });
+      return;
+    }
+    if (isCheckoutBusy) {
+      return;
+    }
+    applyQuantityInputsToCart();
+    setIsPrintingSale(true);
+    try {
+      const { saleInput, saleRecord, savedTotal, savedItems } = buildSalePayload();
+      const saleId = await addSale(saleInput);
+      const printableSale = { ...saleRecord, id: saleId };
+
+      resetSale();
+      setRandomPurchaseInput('');
+      setShowRandomPurchase(false);
+      setDiscountInput('');
+      setTaxInput('');
+      Toast.show({
+        type: 'success',
+        text1: t('Sale completed'),
+        text2: t('Saved {items} items • Rs. {amount}')
+          .replace('{items}', String(savedItems))
+          .replace('{amount}', savedTotal.toLocaleString()),
+      });
+
+      await handleNetworkPrint(printableSale);
+    } catch (error) {
+      console.error('[ProductSelection] Complete sale + print failed', error);
+      Toast.show({ type: 'error', text1: t('Something went wrong') });
+    } finally {
+      setIsPrintingSale(false);
     }
   };
 
@@ -1930,21 +2059,36 @@ export default function ProductSelectionModal() {
         >
           <View>
             <Text style={styles.stickyLabel}>{t('Total')}</Text>
-            {cart.length > 0 ? (
-              <Text style={styles.stickySubLabel}>
-                {itemsCount} {itemsCount === 1 ? t('item') : t('items')}
+          {cart.length > 0 ? (
+            <Text style={styles.stickySubLabel}>
+              {itemsCount} {itemsCount === 1 ? t('item') : t('items')}
+            </Text>
+          ) : null}
+          <Text style={styles.stickyTotal}>Rs. {totalDue.toLocaleString()}</Text>
+        </View>
+          <View style={styles.stickyActions}>
+            <Button
+              onPress={handleProceedToPayment}
+              loading={isQuickPaying || isCompletingSale}
+              disabled={!canCheckout || isCheckoutBusy}
+              style={styles.stickyActionButton}
+            >
+              <Text style={styles.stickyActionText} numberOfLines={1}>
+                {t('Complete Sale')}
               </Text>
-            ) : null}
-            <Text style={styles.stickyTotal}>Rs. {totalDue.toLocaleString()}</Text>
+            </Button>
+            <Button
+              variant="outline"
+              onPress={handleCompleteSaleAndPrint}
+              loading={isPrintingSale}
+              disabled={!canCheckout || isCheckoutBusy}
+              style={styles.stickyActionButton}
+            >
+              <Text style={styles.stickyActionText} numberOfLines={1}>
+                {t('Print')}
+              </Text>
+            </Button>
           </View>
-          <Button
-            onPress={handleProceedToPayment}
-            loading={isQuickPaying || isCompletingSale}
-            disabled={!canCheckout || isQuickPaying || isCompletingSale}
-            style={styles.stickyButton}
-          >
-            {!canCheckout ? t('Add items or amount to continue.') : t('Complete Sale')}
-          </Button>
         </View>
         </View>
       </KeyboardAvoidingView>
@@ -3248,9 +3392,19 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#0f172a',
   },
-  stickyButton: {
+  stickyActions: {
     flex: 1,
-    marginLeft: 12,
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'center',
+  },
+  stickyActionButton: {
+    flex: 1,
+  },
+  stickyActionText: {
+    fontSize: 14,
+    textAlign: 'center',
+    flexShrink: 1,
   },
   modalOverlay: {
     flex: 1,

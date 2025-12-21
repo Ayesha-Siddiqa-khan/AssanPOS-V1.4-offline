@@ -23,6 +23,11 @@ const COMMANDS = {
   DRAWER_KICK: [ESC, 0x70, 0x00, 0x19, 0xfa],
 };
 
+const DEVELOPER_FOOTER_LINES = [
+  'Developed by Abees',
+  'https://www.abees.me/ +923066987888',
+];
+
 const textEncoder = typeof TextEncoder !== 'undefined' ? new TextEncoder() : null;
 
 const lineWidthForPaper = (paperWidthMM: 58 | 80) => (paperWidthMM === 80 ? 42 : 32);
@@ -105,6 +110,19 @@ function formatColumns(left: string, right: string, width: number) {
   return left + ' '.repeat(available - left.length) + right;
 }
 
+function formatItemLine(name: string, qtyLine: string, total: string, width: number) {
+  const left = `${name} ${qtyLine}`.trim();
+  const available = Math.max(0, width - total.length);
+  if (left.length > available) {
+    if (available <= 3) {
+      return left.slice(0, available) + total;
+    }
+    const trimmed = left.slice(0, available - 3).trimEnd();
+    return `${trimmed}...${total}`;
+  }
+  return formatColumns(left, total, width);
+}
+
 function formatMoney(amount: number) {
   return `PKR ${Number(amount || 0).toFixed(0)}`;
 }
@@ -153,13 +171,14 @@ export function buildEscPosReceipt(
 
   for (const item of receiptData.items) {
     bytes.push(...COMMANDS.BOLD_ON);
-    const nameLines = wrapText(item.name, width);
-    nameLines.forEach((line) => appendLine(bytes, line, profile.encoding));
-    bytes.push(...COMMANDS.BOLD_OFF);
-
     const qtyLine = `${item.qty} x ${formatMoney(item.unitPrice)}`;
     const total = formatMoney(item.qty * item.unitPrice);
-    appendLine(bytes, formatColumns(qtyLine, total, width), profile.encoding);
+    appendLine(
+      bytes,
+      formatItemLine(item.name, qtyLine, total, width),
+      profile.encoding
+    );
+    bytes.push(...COMMANDS.BOLD_OFF);
   }
 
   appendLine(bytes, divider, profile.encoding);
@@ -192,6 +211,7 @@ export function buildEscPosReceipt(
   bytes.push(...COMMANDS.ALIGN_CENTER);
   appendLine(bytes, '');
   appendLine(bytes, receiptData.footer, profile.encoding);
+  DEVELOPER_FOOTER_LINES.forEach((line) => appendLine(bytes, line, profile.encoding));
 
   bytes.push(...COMMANDS.FEED_LINE);
   bytes.push(...COMMANDS.FEED_LINE);

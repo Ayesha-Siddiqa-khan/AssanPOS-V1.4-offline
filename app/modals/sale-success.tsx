@@ -3,15 +3,17 @@ import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Modal, TextInput
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useData } from '../../contexts/DataContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useShop } from '../../contexts/ShopContext';
 import { Button } from '../../components/ui/Button';
 import { formatDateTimeForDisplay, formatTimeForDisplay } from '../../lib/date';
+import { db } from '../../lib/database';
 import { shareTextViaWhatsApp } from '../../lib/share';
 import Toast from 'react-native-toast-message';
+import { enqueueReceiptPrint } from '../../services/printQueueService';
+import { mapSaleToReceiptData } from '../../services/receiptMapper';
 import {
   scanForPrinters,
   printReceiptViaBluetooth,
@@ -23,6 +25,7 @@ import {
   type StoreProfile,
   type PrinterDevice,
 } from '../../services/receiptService';
+import type { NetworkPrinterConfig } from '../../types/printer';
 
 export default function SaleSuccessModal() {
   const router = useRouter();
@@ -250,10 +253,10 @@ export default function SaleSuccessModal() {
 
   const handleNetworkPrint = async () => {
     try {
-      const savedPrintersJson = await AsyncStorage.getItem('savedPrinters');
-      const savedPrinters = savedPrintersJson ? JSON.parse(savedPrintersJson) : [];
-      const networkPrinters = savedPrinters.filter((p: any) => p.type === 'network');
-      
+      const networkPrinters = (await db.listPrinterProfiles()).filter(
+        (printer) => printer.type === 'ESC_POS'
+      );
+
       if (networkPrinters.length === 0) {
         Alert.alert(
           t('No Network Printers'),
@@ -262,46 +265,39 @@ export default function SaleSuccessModal() {
         );
         return;
       }
-      
-      const selectPrinter = async (printer: any) => {
-        try {
-          Toast.show({
-            type: 'info',
-            text1: t('Printing...'),
-            text2: `${printer.name}`,
-          });
-          
-          const { printerService } = await import('../../services/escPosPrinterService');
-          const result = await printerService.printReceipt(printer, receiptPayload.receipt);
-          
-          if (result.success) {
-            Toast.show({
-              type: 'success',
-              text1: t('Receipt printed successfully'),
-            });
-          } else {
-            Alert.alert(t('Print Failed'), result.message);
-          }
-        } catch (error: any) {
-          Alert.alert(t('Error'), error.message || t('Failed to print'));
-        }
+
+      const receiptData = mapSaleToReceiptData(sale, {
+        storeName,
+        address: shopProfile?.address,
+        phone: shopProfile?.phoneNumber,
+        footer: t('Thank you for your business!'),
+      });
+
+      const selectPrinter = async (printer: NetworkPrinterConfig) => {
+        await enqueueReceiptPrint(printer, receiptData);
+        Toast.show({
+          type: 'success',
+          text1: t('Receipt queued'),
+          text2: `${printer.name} (${printer.ip})`,
+        });
       };
-      
+
       if (networkPrinters.length === 1) {
-        selectPrinter(networkPrinters[0]);
-      } else {
-        Alert.alert(
-          t('Select Printer'),
-          t('Choose a network printer'),
-          [
-            ...networkPrinters.map((printer: any) => ({
-              text: `${printer.name} (${printer.ip})`,
-              onPress: () => selectPrinter(printer),
-            })),
-            { text: t('Cancel'), style: 'cancel' },
-          ]
-        );
+        await selectPrinter(networkPrinters[0]);
+        return;
       }
+
+      Alert.alert(
+        t('Select Printer'),
+        t('Choose a network printer'),
+        [
+          ...networkPrinters.map((printer) => ({
+            text: `${printer.name} (${printer.ip})`,
+            onPress: () => selectPrinter(printer),
+          })),
+          { text: t('Cancel'), style: 'cancel' },
+        ]
+      );
     } catch (error) {
       console.error('Network print error:', error);
       Toast.show({ type: 'error', text1: t('Failed to print') });

@@ -3,13 +3,15 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert } fr
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 
 import { useData } from '../contexts/DataContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useShop } from '../contexts/ShopContext';
+import { db } from '../lib/database';
 import { shareTextViaWhatsApp } from '../lib/share';
+import { enqueueReceiptPrint } from '../services/printQueueService';
+import { mapPurchaseToReceiptData } from '../services/receiptMapper';
 import {
   createReceiptPdf,
   generateReceiptHtml,
@@ -19,6 +21,7 @@ import {
   type StoreProfile,
 } from '../services/receiptService';
 import { formatTimeForDisplay, formatDateForDisplay } from '../lib/date';
+import type { NetworkPrinterConfig } from '../types/printer';
 
 const formatCurrency = (value: number | null | undefined) => {
   const amount = Number(value);
@@ -339,47 +342,21 @@ export default function VendorPurchaseHistoryScreen() {
     }
   };
 
-  const printPurchaseToNetworkPrinter = async (purchase: any, printer: any) => {
+  const printPurchaseToNetworkPrinter = async (purchase: any, printer: NetworkPrinterConfig) => {
     try {
-      Toast.show({
-        type: 'info',
-        text1: t('Printing...'),
-        text2: `${printer.name} (${printer.ip})`,
+      const receiptData = mapPurchaseToReceiptData(purchase, {
+        storeName,
+        address: shopProfile?.address,
+        phone: shopProfile?.phoneNumber,
+        footer: t('Thank you for your business!'),
       });
 
-      const { printerService } = await import('../services/escPosPrinterService');
-      
-      const receiptData = {
-        storeName: storeName,
-        saleId: purchase.id,
-        date: formatDateForDisplay(purchase.date),
-        time: formatTimeForDisplay(purchase.time),
-        customerName: purchase.vendor?.name || t('Vendor Purchase'),
-        items: (purchase.items || []).map((item: any) => ({
-          name: item.variantName ? `${item.name} - ${item.variantName}` : item.name,
-          quantity: item.quantity,
-          price: item.price,
-          total: item.quantity * item.price,
-        })),
-        subtotal: purchase.total || 0,
-        discount: 0,
-        total: purchase.total || 0,
-        amountPaid: purchase.paidAmount || 0,
-        changeAmount: 0,
-        paymentMethod: purchase.paymentMethod || 'Cash',
-        remainingBalance: purchase.remainingBalance || 0,
-      };
-
-      const result = await printerService.printReceipt(printer, receiptData);
-
-      if (result.success) {
-        Toast.show({
-          type: 'success',
-          text1: t('Print sent successfully'),
-        });
-      } else {
-        Alert.alert(t('Print Failed'), result.message);
-      }
+      await enqueueReceiptPrint(printer, receiptData);
+      Toast.show({
+        type: 'success',
+        text1: t('Receipt queued'),
+        text2: `${printer.name} (${printer.ip})`,
+      });
     } catch (error: any) {
       console.error('Network print error:', error);
       Alert.alert(t('Error'), error.message || t('Failed to print'));
@@ -387,9 +364,9 @@ export default function VendorPurchaseHistoryScreen() {
   };
 
   const handlePrintPurchase = async (purchase: any) => {
-    const savedPrintersJson = await AsyncStorage.getItem('savedPrinters');
-    const savedPrinters = savedPrintersJson ? JSON.parse(savedPrintersJson) : [];
-    const networkPrinters = savedPrinters.filter((p: any) => p.type === 'network');
+    const networkPrinters = (await db.listPrinterProfiles()).filter(
+      (printer) => printer.type === 'ESC_POS'
+    );
     
     const buttons: any[] = [
       {
@@ -419,7 +396,7 @@ export default function VendorPurchaseHistoryScreen() {
               t('Select Printer'),
               t('Choose a network printer'),
               [
-                ...networkPrinters.map((printer: any) => ({
+                ...networkPrinters.map((printer) => ({
                   text: `${printer.name} (${printer.ip})`,
                   onPress: () => printPurchaseToNetworkPrinter(purchase, printer),
                 })),

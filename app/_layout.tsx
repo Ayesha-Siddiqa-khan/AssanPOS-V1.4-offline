@@ -11,10 +11,12 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { AuthProvider, useAuth } from '../contexts/AuthContext';
 import { KeyLoginScreen } from '../components/auth/KeyLoginScreen';
 import { ErrorBoundary } from '../components/ErrorBoundary';
+import { ReceiptBitmapRenderer } from '../components/printing/ReceiptBitmapRenderer';
 import { initCrashLogger } from '../lib/crashLogger';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useSegments } from 'expo-router';
 import { db } from '../lib/database';
+import { startPrintQueueWorker, stopPrintQueueWorker } from '../services/printQueueService';
 
 // Ignore specific warnings related to Text rendering in LogBox
 LogBox.ignoreLogs([
@@ -24,6 +26,13 @@ LogBox.ignoreLogs([
 export default function RootLayout() {
   useEffect(() => {
     initCrashLogger();
+  }, []);
+
+  useEffect(() => {
+    startPrintQueueWorker();
+    return () => {
+      stopPrintQueueWorker();
+    };
   }, []);
 
   useEffect(() => {
@@ -54,6 +63,7 @@ export default function RootLayout() {
               </LanguageProvider>
             </DataProvider>
           </AuthProvider>
+          <ReceiptBitmapRenderer />
           <Toast />
         </View>
       </SafeAreaProvider>
@@ -200,6 +210,12 @@ const AppNavigation = () => {
         />
         <Stack.Screen
           name="calculator"
+          options={{
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
+          name="print-center"
           options={{
             headerShown: false,
           }}

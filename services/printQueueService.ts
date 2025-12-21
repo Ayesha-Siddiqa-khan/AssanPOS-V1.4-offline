@@ -1,0 +1,202 @@
+import { AppState } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { db } from '../lib/database';
+import type { NetworkPrinterConfig, ReceiptData, PrintJob } from '../types/printer';
+import { printerService, buildTestReceiptData } from './escPosPrinterService';
+
+const LEGACY_MIGRATION_KEY = 'printerProfilesMigrated';
+const RETRY_BASE_DELAY_MS = 4000;
+const RETRY_MAX_DELAY_MS = 60000;
+
+let processing = false;
+let workerTimer: NodeJS.Timeout | null = null;
+let appStateListener: { remove: () => void } | null = null;
+
+const computeBackoffMs = (attempts: number) => {
+  const delay = RETRY_BASE_DELAY_MS * Math.pow(2, Math.max(0, attempts - 1));
+  return Math.min(delay, RETRY_MAX_DELAY_MS);
+};
+
+export async function migrateLegacyPrinters() {
+  try {
+    const migrated = await AsyncStorage.getItem(LEGACY_MIGRATION_KEY);
+    if (migrated === '1') {
+      return;
+    }
+
+    const raw = await AsyncStorage.getItem('savedPrinters');
+    if (!raw) {
+      await AsyncStorage.setItem(LEGACY_MIGRATION_KEY, '1');
+      return;
+    }
+
+    const legacyPrinters = JSON.parse(raw) as Array<any>;
+    for (const legacy of legacyPrinters) {
+      if (legacy?.type !== 'network' && legacy?.type !== 'ESC_POS') {
+        continue;
+      }
+      const id = legacy.id || `${legacy.ip || 'printer'}-${Date.now()}`;
+      await db.upsertPrinterProfile({
+        id,
+        name: legacy.name || `Printer ${legacy.ip || ''}`,
+        type: 'ESC_POS',
+        ip: legacy.ip,
+        port: Number(legacy.port || 9100),
+        paperWidthMM: legacy.paperWidthMM === 58 ? 58 : 80,
+        encoding: 'cp437',
+        codePage: 0,
+        cutMode: 'partial',
+        drawerKick: false,
+        bitmapFallback: false,
+        isDefault: Boolean(legacy.isDefault),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    const profiles = await db.listPrinterProfiles();
+    if (!profiles.some((profile) => profile.isDefault) && profiles.length > 0) {
+      await db.setDefaultPrinterProfile(profiles[0].id);
+    }
+
+    await AsyncStorage.removeItem('savedPrinters');
+    await AsyncStorage.setItem(LEGACY_MIGRATION_KEY, '1');
+  } catch (error) {
+    console.warn('Printer migration failed', error);
+  }
+}
+
+export async function enqueueReceiptPrint(
+  profile: NetworkPrinterConfig,
+  payload: ReceiptData,
+  options?: { maxAttempts?: number; type?: 'receipt' | 'test' }
+): Promise<number> {
+  const jobId = await db.createPrintJob({
+    profileId: profile.id,
+    type: options?.type ?? 'receipt',
+    payload,
+    maxAttempts: options?.maxAttempts ?? 3,
+  });
+  void processPrintQueue();
+  return jobId;
+}
+
+export async function enqueueTestPrint(profile: NetworkPrinterConfig): Promise<number> {
+  const payload = buildTestReceiptData(profile, {
+    storeName: profile.name,
+  });
+  return enqueueReceiptPrint(profile, payload, { type: 'test' });
+}
+
+export async function processPrintQueue() {
+  if (processing) {
+    return;
+  }
+  processing = true;
+  try {
+    let job = await db.getNextPendingPrintJob();
+    while (job) {
+      await executePrintJob(job);
+      job = await db.getNextPendingPrintJob();
+    }
+  } finally {
+    processing = false;
+  }
+}
+
+async function executePrintJob(job: PrintJob) {
+  const profile = job.profileId ? await db.getPrinterProfile(job.profileId) : null;
+  if (!profile) {
+    const attempts = job.attempts + 1;
+    await db.updatePrintJob(job.id, {
+      status: attempts >= job.maxAttempts ? 'failed' : 'retrying',
+      attempts,
+      lastError: 'Printer profile not found',
+      lastAttemptAt: new Date().toISOString(),
+      nextAttemptAt:
+        attempts >= job.maxAttempts
+          ? null
+          : new Date(Date.now() + computeBackoffMs(attempts)).toISOString(),
+    });
+    return;
+  }
+
+  const attempts = job.attempts + 1;
+  await db.updatePrintJob(job.id, {
+    status: 'printing',
+    attempts,
+    lastError: null,
+    lastAttemptAt: new Date().toISOString(),
+    nextAttemptAt: null,
+  });
+
+  const result = await printerService.printReceipt(profile, job.payload as ReceiptData);
+  if (result.success) {
+    await db.updatePrintJob(job.id, {
+      status: 'success',
+      lastError: null,
+      nextAttemptAt: null,
+    });
+    return;
+  }
+
+  const shouldRetry = attempts < job.maxAttempts;
+  await db.updatePrintJob(job.id, {
+    status: shouldRetry ? 'retrying' : 'failed',
+    lastError: result.message || result.error || 'Print failed',
+    nextAttemptAt: shouldRetry
+      ? new Date(Date.now() + computeBackoffMs(attempts)).toISOString()
+      : null,
+  });
+}
+
+export async function listPrintJobs(limit = 100) {
+  return db.listPrintJobs(limit);
+}
+
+export async function retryPrintJob(id: number) {
+  return db.updatePrintJob(id, {
+    status: 'pending',
+    nextAttemptAt: null,
+    lastError: null,
+  });
+}
+
+export async function cancelPrintJob(id: number) {
+  return db.updatePrintJob(id, {
+    status: 'cancelled',
+    nextAttemptAt: null,
+  });
+}
+
+export async function clearSuccessfulJobs() {
+  return db.deletePrintJobsByStatus(['success']);
+}
+
+export async function startPrintQueueWorker() {
+  await migrateLegacyPrinters();
+  void processPrintQueue();
+  if (!workerTimer) {
+    workerTimer = setInterval(() => {
+      void processPrintQueue();
+    }, 4000);
+  }
+  if (!appStateListener) {
+    appStateListener = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void processPrintQueue();
+      }
+    });
+  }
+}
+
+export function stopPrintQueueWorker() {
+  if (workerTimer) {
+    clearInterval(workerTimer);
+    workerTimer = null;
+  }
+  if (appStateListener) {
+    appStateListener.remove();
+    appStateListener = null;
+  }
+}

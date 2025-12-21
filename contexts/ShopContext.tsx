@@ -11,6 +11,7 @@ export type ShopProfile = {
   shopName: string;
   ownerName: string;
   phoneNumber: string;
+  address?: string;
 };
 
 type ShopContextValue = {
@@ -23,6 +24,7 @@ const DEFAULT_PROFILE: ShopProfile = {
   shopName: '',
   ownerName: '',
   phoneNumber: '',
+  address: '',
 };
 
 const ShopContext = createContext<ShopContextValue | undefined>(undefined);
@@ -42,6 +44,7 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
             shopName: stored.shopName ?? '',
             ownerName: stored.ownerName ?? '',
             phoneNumber: stored.phoneNumber ?? '',
+            address: stored.address ?? '',
           });
         }
       } catch (error) {

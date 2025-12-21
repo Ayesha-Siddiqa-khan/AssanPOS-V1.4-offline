@@ -14,6 +14,7 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
@@ -27,6 +28,7 @@ import { useShop } from '../../contexts/ShopContext';
 import { useData, JazzCashProfitConfig } from '../../contexts/DataContext';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
+import { Select } from '../../components/ui/Select';
 import { db } from '../../lib/database';
 import { hashPin, isBiometricAvailable, enableBiometrics, disableBiometrics, getBiometricUserId } from '../../services/authService';
 import { synchronizeNow } from '../../services/syncService';
@@ -54,6 +56,8 @@ import {
 } from '../../services/backupService';
 import { formatDateForDisplay } from '../../lib/date';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { NetworkPrinterConfig, PrinterCutMode, PrinterEncoding } from '../../types/printer';
+import { enqueueTestPrint, migrateLegacyPrinters } from '../../services/printQueueService';
 
 const getDefaultBackupFileName = () => {
   const now = new Date();
@@ -114,6 +118,7 @@ const currencyFormatter = createCurrencyFormatter();
 const CACHE_SCHEDULE_KEY = 'pos.cacheSchedule';
 
 export default function SettingsScreen() {
+  const router = useRouter();
   const { user: currentUser, logout, updateUserName } = useAuth();
   const { t, language, setLanguage } = useLanguage();
   const { profile: shopProfile, saveProfile: saveShopProfile } = useShop();
@@ -182,16 +187,13 @@ export default function SettingsScreen() {
   const [networkPrinterIP, setNetworkPrinterIP] = useState('');
   const [networkPrinterPort, setNetworkPrinterPort] = useState('9100');
   const [networkPrinterName, setNetworkPrinterName] = useState('');
-  const [editingPrinter, setEditingPrinter] = useState<any>(null);
-  const [savedPrinters, setSavedPrinters] = useState<Array<{
-    id: string;
-    name: string;
-    type: string;
-    ip?: string;
-    port?: number;
-    paperWidthMM?: 58 | 80;
-    isDefault?: boolean;
-  }>>([]);
+  const [printerEncoding, setPrinterEncoding] = useState<PrinterEncoding>('cp437');
+  const [printerCodePage, setPrinterCodePage] = useState('0');
+  const [printerCutMode, setPrinterCutMode] = useState<PrinterCutMode>('partial');
+  const [printerDrawerKick, setPrinterDrawerKick] = useState(false);
+  const [printerBitmapFallback, setPrinterBitmapFallback] = useState(false);
+  const [editingPrinter, setEditingPrinter] = useState<NetworkPrinterConfig | null>(null);
+  const [savedPrinters, setSavedPrinters] = useState<NetworkPrinterConfig[]>([]);
 
   // User management is now done through the admin panel (Supabase)
   // Disable local user management since it uses the old SQLite system
@@ -212,6 +214,31 @@ export default function SettingsScreen() {
     { label: t('Daily'), value: 24 },
     { label: t('Every 3 days'), value: 72 },
     { label: t('Weekly'), value: 24 * 7 },
+  ];
+  const encodingOptions = [
+    { label: 'CP437 (Default)', value: 'cp437' },
+    { label: 'CP850 (Western)', value: 'cp850' },
+    { label: 'CP852 (Central Europe)', value: 'cp852' },
+    { label: 'CP858 (Euro)', value: 'cp858' },
+    { label: 'CP864 (Arabic)', value: 'cp864' },
+    { label: 'CP866 (Cyrillic)', value: 'cp866' },
+    { label: 'CP1252 (Windows)', value: 'cp1252' },
+    { label: 'CP1256 (Arabic)', value: 'cp1256' },
+    { label: 'UTF-8 (If supported)', value: 'utf8' },
+  ];
+  const codePageOptions = [
+    { label: '0 - CP437', value: '0' },
+    { label: '16 - CP1252', value: '16' },
+    { label: '17 - CP866', value: '17' },
+    { label: '18 - CP852', value: '18' },
+    { label: '19 - CP858', value: '19' },
+    { label: '30 - CP864 (Arabic)', value: '30' },
+    { label: '32 - CP869', value: '32' },
+  ];
+  const cutModeOptions = [
+    { label: t('Partial Cut'), value: 'partial' },
+    { label: t('Full Cut'), value: 'full' },
+    { label: t('No Cut'), value: 'none' },
   ];
 
   useEffect(() => {
@@ -294,13 +321,17 @@ export default function SettingsScreen() {
       if (width === '58' || width === '80') {
         setPrinterWidth(width);
       }
-      const saved = await AsyncStorage.getItem('savedPrinters');
-      if (saved) {
-        setSavedPrinters(JSON.parse(saved));
-      }
+      await migrateLegacyPrinters();
+      const profiles = await db.listPrinterProfiles();
+      setSavedPrinters(profiles);
     } catch (error) {
       console.error('Failed to load printer settings', error);
     }
+  };
+
+  const refreshPrinters = async () => {
+    const profiles = await db.listPrinterProfiles();
+    setSavedPrinters(profiles);
   };
 
   const handleSaveShopDetails = async () => {
@@ -1540,6 +1571,23 @@ export default function SettingsScreen() {
               <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
             </TouchableOpacity>
 
+            <TouchableOpacity
+              style={styles.addPrinterButton}
+              onPress={() => router.push('/print-center')}
+              activeOpacity={0.85}
+            >
+              <View style={styles.addPrinterIcon}>
+                <Ionicons name="pulse-outline" size={24} color="#2563eb" />
+              </View>
+              <View style={styles.addPrinterContent}>
+                <Text style={styles.addPrinterTitle}>{t('Open Print Center')}</Text>
+                <Text style={styles.addPrinterSubtitle}>
+                  {t('Queue status, diagnostics, discovery')}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
+            </TouchableOpacity>
+
             {/* Saved Printers List */}
             {savedPrinters.length > 0 && (
               <View style={styles.savedPrintersContainer}>
@@ -1549,9 +1597,9 @@ export default function SettingsScreen() {
                     <View style={styles.printerItemIcon}>
                       <Ionicons
                         name={
-                          printer.type === 'bluetooth'
+                          printer.type === 'BLUETOOTH'
                             ? 'bluetooth'
-                            : printer.type === 'usb'
+                            : printer.type === 'USB'
                             ? 'hardware-chip-outline'
                             : 'globe-outline'
                         }
@@ -1562,18 +1610,30 @@ export default function SettingsScreen() {
                     <View style={styles.printerItemContent}>
                       <Text style={styles.printerItemName}>{printer.name}</Text>
                       <Text style={styles.printerItemType}>
-                        {printer.type === 'bluetooth'
+                        {printer.type === 'BLUETOOTH'
                           ? t('Bluetooth Printer')
-                          : printer.type === 'usb'
+                          : printer.type === 'USB'
                           ? t('USB Printer')
-                          : `${t('Network')} - ${printer.ip}:${printer.port || 9100} (${printer.paperWidthMM || 80}mm)`}
+                          : `${t('Network')} - ${printer.ip}:${printer.port || 9100} (${printer.paperWidthMM || 80}mm, ${printer.encoding || 'cp437'}, ${printer.cutMode || 'partial'})`}
                       </Text>
                       {printer.isDefault && (
                         <Text style={styles.printerItemDefault}>★ {t('Default')}</Text>
                       )}
                     </View>
                     <View style={styles.printerItemActions}>
-                      {printer.type === 'network' && (
+                      {printer.type === 'ESC_POS' && !printer.isDefault && (
+                        <TouchableOpacity
+                          onPress={async () => {
+                            await db.setDefaultPrinterProfile(printer.id);
+                            await refreshPrinters();
+                            Toast.show({ type: 'success', text1: t('Default printer updated') });
+                          }}
+                          style={{ marginRight: 12 }}
+                        >
+                          <Ionicons name="star-outline" size={20} color="#f59e0b" />
+                        </TouchableOpacity>
+                      )}
+                      {printer.type === 'ESC_POS' && (
                         <TouchableOpacity
                           onPress={() => {
                             setEditingPrinter(printer);
@@ -1581,6 +1641,11 @@ export default function SettingsScreen() {
                             setNetworkPrinterIP(printer.ip || '');
                             setNetworkPrinterPort(printer.port?.toString() || '9100');
                             setPrinterWidth(printer.paperWidthMM === 58 ? '58' : '80');
+                            setPrinterEncoding(printer.encoding || 'cp437');
+                            setPrinterCodePage(String(printer.codePage ?? 0));
+                            setPrinterCutMode((printer.cutMode as PrinterCutMode) || 'partial');
+                            setPrinterDrawerKick(Boolean(printer.drawerKick));
+                            setPrinterBitmapFallback(Boolean(printer.bitmapFallback));
                             setIsNetworkPrinterModalVisible(true);
                           }}
                           style={{ marginRight: 12 }}
@@ -1599,9 +1664,12 @@ export default function SettingsScreen() {
                                 text: t('Remove'),
                                 style: 'destructive',
                                 onPress: async () => {
-                                  const updated = savedPrinters.filter((p) => p.id !== printer.id);
-                                  setSavedPrinters(updated);
-                                  await AsyncStorage.setItem('savedPrinters', JSON.stringify(updated));
+                                  await db.deletePrinterProfile(printer.id);
+                                  const profiles = await db.listPrinterProfiles();
+                                  if (!profiles.some((p) => p.isDefault) && profiles.length > 0) {
+                                    await db.setDefaultPrinterProfile(profiles[0].id);
+                                  }
+                                  await refreshPrinters();
                                   Toast.show({
                                     type: 'success',
                                     text1: t('Printer removed'),
@@ -1624,106 +1692,137 @@ export default function SettingsScreen() {
             <TouchableOpacity
               style={styles.testPrintButton}
               onPress={async () => {
-                Alert.alert(
-                  t('Test Print'),
-                  t('Choose printing method'),
-                  [
-                    {
-                      text: t('Cancel'),
-                      style: 'cancel',
+                const networkPrinters = await db.listPrinterProfiles();
+                const buttons: any[] = [
+                  {
+                    text: t('Cancel'),
+                    style: 'cancel',
+                  },
+                ];
+
+                if (networkPrinters.length > 0) {
+                  buttons.splice(1, 0, {
+                    text: t('ESC/POS Test'),
+                    onPress: async () => {
+                      const runTest = async (printer: NetworkPrinterConfig) => {
+                        await enqueueTestPrint(printer);
+                        Toast.show({ type: 'success', text1: t('Test print queued') });
+                      };
+
+                      if (networkPrinters.length > 1) {
+                        Alert.alert(
+                          t('Select Printer'),
+                          t('Choose a network printer'),
+                          [
+                            ...networkPrinters.map((printer) => ({
+                              text: printer.name,
+                              onPress: () => runTest(printer),
+                            })),
+                            { text: t('Cancel'), style: 'cancel' },
+                          ]
+                        );
+                        return;
+                      }
+
+                      await runTest(networkPrinters[0]);
                     },
-                    {
-                      text: t('System Print'),
-                      onPress: async () => {
-                        try {
-                          const { generateReceiptHtml, openPrintPreview } = await import('../../services/receiptService');
-                          
-                          const testPayload = {
-                            id: 'TEST-' + Date.now(),
-                            customerName: t('Test Customer'),
-                            subtotal: 100,
-                            tax: 0,
-                            total: 100,
-                            paymentMethod: t('Cash'),
-                            createdAt: new Date().toLocaleString(),
-                            lineItems: [
-                              { name: t('Test Item 1'), quantity: 2, price: 25 },
-                              { name: t('Test Item 2'), quantity: 1, price: 50 },
-                            ],
-                            amountPaid: 100,
-                            changeAmount: 0,
-                            remainingBalance: 0,
-                          };
+                  });
+                }
 
-                          const storeProfile = {
-                            name: shopProfile?.shopName || t('Your Store'),
-                            address: shopProfile?.address || t('Test Address'),
-                            phone: shopProfile?.phoneNumber || '123-456-7890',
-                            thankYouMessage: t('Thank you for your business!'),
-                          };
+                buttons.push(
+                  {
+                    text: t('System Print'),
+                    onPress: async () => {
+                      try {
+                        const { generateReceiptHtml, openPrintPreview } = await import('../../services/receiptService');
+                        
+                        const testPayload = {
+                          id: 'TEST-' + Date.now(),
+                          customerName: t('Test Customer'),
+                          subtotal: 100,
+                          tax: 0,
+                          total: 100,
+                          paymentMethod: t('Cash'),
+                          createdAt: new Date().toLocaleString(),
+                          lineItems: [
+                            { name: t('Test Item 1'), quantity: 2, price: 25 },
+                            { name: t('Test Item 2'), quantity: 1, price: 50 },
+                          ],
+                          amountPaid: 100,
+                          changeAmount: 0,
+                          remainingBalance: 0,
+                        };
 
-                          const html = await generateReceiptHtml(testPayload, storeProfile);
-                          const widthMm = printerWidth === '58' ? 58 : 80;
-                          await openPrintPreview(html, { widthMm });
-                        } catch (error) {
-                          console.error('Test print failed:', error);
-                          Alert.alert(t('Error'), t('Could not generate test receipt'));
-                        }
-                      },
+                        const storeProfile = {
+                          name: shopProfile?.shopName || t('Your Store'),
+                          address: shopProfile?.address || t('Test Address'),
+                          phone: shopProfile?.phoneNumber || '123-456-7890',
+                          thankYouMessage: t('Thank you for your business!'),
+                        };
+
+                        const html = await generateReceiptHtml(testPayload, storeProfile);
+                        const widthMm = printerWidth === '58' ? 58 : 80;
+                        await openPrintPreview(html, { widthMm });
+                      } catch (error) {
+                        console.error('Test print failed:', error);
+                        Alert.alert(t('Error'), t('Could not generate test receipt'));
+                      }
                     },
-                    {
-                      text: t('Share PDF'),
-                      onPress: async () => {
-                        try {
-                          const { generateReceiptHtml, createReceiptPdf, shareReceipt } = await import('../../services/receiptService');
-                          
-                          const testPayload = {
-                            id: 'TEST-' + Date.now(),
-                            customerName: t('Test Customer'),
-                            subtotal: 100,
-                            tax: 0,
-                            total: 100,
-                            paymentMethod: t('Cash'),
-                            createdAt: new Date().toLocaleString(),
-                            lineItems: [
-                              { name: t('Test Item 1'), quantity: 2, price: 25 },
-                              { name: t('Test Item 2'), quantity: 1, price: 50 },
-                            ],
-                            amountPaid: 100,
-                            changeAmount: 0,
-                            remainingBalance: 0,
-                          };
+                  },
+                  {
+                    text: t('Share PDF'),
+                    onPress: async () => {
+                      try {
+                        const { generateReceiptHtml, createReceiptPdf, shareReceipt } = await import('../../services/receiptService');
+                        
+                        const testPayload = {
+                          id: 'TEST-' + Date.now(),
+                          customerName: t('Test Customer'),
+                          subtotal: 100,
+                          tax: 0,
+                          total: 100,
+                          paymentMethod: t('Cash'),
+                          createdAt: new Date().toLocaleString(),
+                          lineItems: [
+                            { name: t('Test Item 1'), quantity: 2, price: 25 },
+                            { name: t('Test Item 2'), quantity: 1, price: 50 },
+                          ],
+                          amountPaid: 100,
+                          changeAmount: 0,
+                          remainingBalance: 0,
+                        };
 
-                          const storeProfile = {
-                            name: shopProfile?.shopName || t('Your Store'),
-                            address: shopProfile?.address || t('Test Address'),
-                            phone: shopProfile?.phoneNumber || '123-456-7890',
-                            thankYouMessage: t('Thank you for your business!'),
-                          };
+                        const storeProfile = {
+                          name: shopProfile?.shopName || t('Your Store'),
+                          address: shopProfile?.address || t('Test Address'),
+                          phone: shopProfile?.phoneNumber || '123-456-7890',
+                          thankYouMessage: t('Thank you for your business!'),
+                        };
 
-                          Toast.show({
-                            type: 'info',
-                            text1: t('Generating test PDF...'),
-                          });
+                        Toast.show({
+                          type: 'info',
+                          text1: t('Generating test PDF...'),
+                        });
 
-                          const html = await generateReceiptHtml(testPayload, storeProfile);
-                          const widthMm = printerWidth === '58' ? 58 : 80;
-                          const pdf = await createReceiptPdf(html, { widthMm });
-                          await shareReceipt(pdf.uri);
+                        const html = await generateReceiptHtml(testPayload, storeProfile);
+                        const widthMm = printerWidth === '58' ? 58 : 80;
+                        const pdf = await createReceiptPdf(html, { widthMm });
+                        await shareReceipt(pdf.uri);
 
-                          Toast.show({
-                            type: 'success',
-                            text1: t('Test PDF ready'),
-                            text2: t('Share to your Bixolon printer app'),
-                          });
-                        } catch (error) {
-                          console.error('Test PDF failed:', error);
-                          Alert.alert(t('Error'), t('Could not create test PDF'));
-                        }
-                      },
+                        Toast.show({
+                          type: 'success',
+                          text1: t('Test PDF ready'),
+                          text2: t('Share to your Bixolon printer app'),
+                        });
+                      } catch (error) {
+                        console.error('Test PDF failed:', error);
+                        Alert.alert(t('Error'), t('Could not create test PDF'));
+                      }
                     },
-                  ]
+                  }
                 );
+
+                Alert.alert(t('Test Print'), t('Choose printing method'), buttons);
               }}
               activeOpacity={0.8}
             >
@@ -2504,6 +2603,14 @@ export default function SettingsScreen() {
                 setIsPrinterModalVisible(false);
                 setNetworkPrinterIP('');
                 setNetworkPrinterName('');
+                setNetworkPrinterPort('9100');
+                setPrinterWidth('80');
+                setPrinterEncoding('cp437');
+                setPrinterCodePage('0');
+                setPrinterCutMode('partial');
+                setPrinterDrawerKick(false);
+                setPrinterBitmapFallback(false);
+                setEditingPrinter(null);
                 setTimeout(() => setIsNetworkPrinterModalVisible(true), 300);
               }}
               activeOpacity={0.8}
@@ -2639,6 +2746,75 @@ export default function SettingsScreen() {
                     </View>
                   </View>
 
+                  <Select
+                    label={t('Text Encoding')}
+                    value={printerEncoding}
+                    onValueChange={(value) => setPrinterEncoding(value as PrinterEncoding)}
+                    options={encodingOptions}
+                  />
+
+                  <Select
+                    label={t('Code Page')}
+                    value={printerCodePage}
+                    onValueChange={setPrinterCodePage}
+                    options={codePageOptions}
+                  />
+
+                  <Select
+                    label={t('Cut Mode')}
+                    value={printerCutMode}
+                    onValueChange={(value) => setPrinterCutMode(value as PrinterCutMode)}
+                    options={cutModeOptions}
+                  />
+
+                  <View style={styles.statusToggle}>
+                    <View style={styles.statusToggleLeft}>
+                      <View style={styles.printerToggleIcon}>
+                        <Ionicons name="cash-outline" size={20} color="#2563eb" />
+                      </View>
+                      <View>
+                        <Text style={styles.statusToggleText}>{t('Cash Drawer Kick')}</Text>
+                        <Text style={styles.statusToggleHint}>
+                          {t('Pulse the drawer after printing')}
+                        </Text>
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      style={[
+                        styles.toggleSwitch,
+                        printerDrawerKick && styles.toggleSwitchActive,
+                      ]}
+                      onPress={() => setPrinterDrawerKick((prev) => !prev)}
+                      activeOpacity={0.8}
+                    >
+                      <View style={[styles.toggleKnob, printerDrawerKick && styles.toggleKnobActive]} />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.statusToggle}>
+                    <View style={styles.statusToggleLeft}>
+                      <View style={styles.printerToggleIcon}>
+                        <Ionicons name="image-outline" size={20} color="#2563eb" />
+                      </View>
+                      <View>
+                        <Text style={styles.statusToggleText}>{t('Bitmap Fallback')}</Text>
+                        <Text style={styles.statusToggleHint}>
+                          {t('Use bitmap for Arabic/Urdu text')}
+                        </Text>
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      style={[
+                        styles.toggleSwitch,
+                        printerBitmapFallback && styles.toggleSwitchActive,
+                      ]}
+                      onPress={() => setPrinterBitmapFallback((prev) => !prev)}
+                      activeOpacity={0.8}
+                    >
+                      <View style={[styles.toggleKnob, printerBitmapFallback && styles.toggleKnobActive]} />
+                    </TouchableOpacity>
+                  </View>
+
                   <Button
                     variant="outline"
                     onPress={async () => {
@@ -2656,6 +2832,11 @@ export default function SettingsScreen() {
                           ip: networkPrinterIP.trim(),
                           port: parseInt(networkPrinterPort) || 9100,
                           paperWidthMM: (printerWidth === '58' ? 58 : 80) as 58 | 80,
+                          encoding: printerEncoding,
+                          codePage: parseInt(printerCodePage) || 0,
+                          cutMode: printerCutMode,
+                          drawerKick: printerDrawerKick,
+                          bitmapFallback: printerBitmapFallback,
                           isDefault: false,
                         };
                         
@@ -2696,22 +2877,23 @@ export default function SettingsScreen() {
                         return;
                       }
                       
-                      const newPrinter = {
+                      const newPrinter: NetworkPrinterConfig = {
                         id: editingPrinter?.id || Date.now().toString(),
                         name: networkPrinterName.trim() || `Printer ${networkPrinterIP}`,
-                        type: 'network',
+                        type: 'ESC_POS',
                         ip: networkPrinterIP.trim(),
                         port: parseInt(networkPrinterPort) || 9100,
                         paperWidthMM: (printerWidth === '58' ? 58 : 80) as 58 | 80,
-                        isDefault: savedPrinters.length === 0,
+                        encoding: printerEncoding,
+                        codePage: parseInt(printerCodePage) || 0,
+                        cutMode: printerCutMode,
+                        drawerKick: printerDrawerKick,
+                        bitmapFallback: printerBitmapFallback,
+                        isDefault: editingPrinter?.isDefault ?? savedPrinters.length === 0,
                       };
                       
-                      const updated = editingPrinter
-                        ? savedPrinters.map(p => p.id === editingPrinter.id ? newPrinter : p)
-                        : [...savedPrinters, newPrinter];
-                      
-                      setSavedPrinters(updated);
-                      await AsyncStorage.setItem('savedPrinters', JSON.stringify(updated));
+                      await db.upsertPrinterProfile(newPrinter);
+                      await refreshPrinters();
                       
                       setIsNetworkPrinterModalVisible(false);
                       setEditingPrinter(null);
@@ -3490,6 +3672,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  printerToggleIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#eff6ff',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   statusToggleText: {
     fontSize: 16,

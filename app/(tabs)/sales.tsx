@@ -24,8 +24,11 @@ import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { formatDateForDisplay, formatTimeForDisplay, formatDateForStorage } from '../../lib/date';
+import { db } from '../../lib/database';
 import { spacing, radii, textStyles } from '../../theme/tokens';
 import { shareTextViaWhatsApp } from '../../lib/share';
+import { enqueueReceiptPrint } from '../../services/printQueueService';
+import { mapSaleToReceiptData } from '../../services/receiptMapper';
 import {
   createReceiptPdf,
   generateReceiptHtml,
@@ -35,6 +38,7 @@ import {
   printReceiptViaBluetooth,
   type PrinterDevice,
 } from '../../services/receiptService';
+import type { NetworkPrinterConfig } from '../../types/printer';
 
 const PRINTER_STORAGE_KEY = 'pos.selectedPrinter';
 
@@ -330,65 +334,21 @@ export default function SalesScreen() {
     }
   };
 
-  const printToNetworkPrinter = async (sale: any, printer: any) => {
+  const printToNetworkPrinter = async (sale: any, printer: NetworkPrinterConfig) => {
     try {
-      Toast.show({
-        type: 'info',
-        text1: t('Printing...'),
-        text2: `${printer.name} (${printer.ip})`,
+      const receiptData = mapSaleToReceiptData(sale, {
+        storeName,
+        address: shopProfile?.address,
+        phone: shopProfile?.phoneNumber,
+        footer: t('Thank you for your business!'),
       });
 
-      const { printerService } = await import('../../services/escPosPrinterService');
-      
-      // Build receipt data
-      const receiptData = {
-        storeName: storeName,
-        saleId: sale.id,
-        date: formatDateForDisplay(sale.date),
-        time: formatTimeForDisplay(sale.time),
-        customerName: sale.customer?.name || t('Walk-in Customer'),
-        items: (sale.cart || []).map((item: any) => ({
-          name: item.variantName ? `${item.name} - ${item.variantName}` : item.name,
-          quantity: item.quantity,
-          price: item.price,
-          total: item.quantity * item.price,
-        })),
-        subtotal: sale.subtotal || sale.total || 0,
-        discount: sale.discount || 0,
-        total: sale.total || 0,
-        amountPaid: sale.paidAmount || 0,
-        changeAmount: sale.changeAmount || 0,
-        paymentMethod: sale.paymentMethod || 'Cash',
-        remainingBalance: sale.remainingBalance || 0,
-      };
-
-      const result = await printerService.printReceipt(printer, receiptData);
-
-      if (result.success) {
-        Toast.show({
-          type: 'success',
-          text1: t('Print sent successfully'),
-          text2: t('Check printer for receipt'),
-        });
-      } else {
-        Alert.alert(
-          t('Print Failed'),
-          `${result.message}\n\n${t('Suggestions')}:\n• ${t('Check printer is on')}\n• ${t('Verify IP address')}\n• ${t('Ensure same Wi-Fi network')}`,
-          [
-            { text: t('OK') },
-            {
-              text: t('Test Printer'),
-              onPress: async () => {
-                const testResult = await printerService.testPrint(printer);
-                Alert.alert(
-                  testResult.success ? t('Success') : t('Failed'),
-                  testResult.message
-                );
-              },
-            },
-          ]
-        );
-      }
+      await enqueueReceiptPrint(printer, receiptData);
+      Toast.show({
+        type: 'success',
+        text1: t('Receipt queued'),
+        text2: `${printer.name} (${printer.ip})`,
+      });
     } catch (error: any) {
       console.error('Network print error:', error);
       Alert.alert(
@@ -399,10 +359,9 @@ export default function SalesScreen() {
   };
 
   const printSale = async (sale: any) => {
-    // Load saved printers
-    const savedPrintersJson = await AsyncStorage.getItem('savedPrinters');
-    const savedPrinters = savedPrintersJson ? JSON.parse(savedPrintersJson) : [];
-    const networkPrinters = savedPrinters.filter((p: any) => p.type === 'network');
+    const networkPrinters = (await db.listPrinterProfiles()).filter(
+      (printer) => printer.type === 'ESC_POS'
+    );
     
     const buttons: any[] = [
       {
@@ -460,7 +419,7 @@ export default function SalesScreen() {
               t('Select Printer'),
               t('Choose a network printer'),
               [
-                ...networkPrinters.map((printer: any) => ({
+                ...networkPrinters.map((printer) => ({
                   text: `${printer.name} (${printer.ip})`,
                   onPress: () => printToNetworkPrinter(sale, printer),
                 })),

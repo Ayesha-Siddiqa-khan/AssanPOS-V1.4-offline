@@ -14,6 +14,7 @@ import {
 } from 'expo-file-system/legacy';
 import { Buffer } from 'buffer';
 import * as SQLite from 'expo-sqlite';
+import type { PrinterCutMode, PrinterEncoding, PrinterType } from '../types/printer';
 
 const DB_NAME = 'pos_hardware_shop.db';
 const BACKUP_DIRECTORY_NAME = 'POSBackups';
@@ -133,6 +134,38 @@ type ImportJobRecord = {
   completedAt?: string | null;
 };
 
+type PrinterProfileRecord = {
+  id: string;
+  name: string;
+  type: PrinterType;
+  ip: string;
+  port: number;
+  paperWidthMM: 58 | 80;
+  encoding: PrinterEncoding;
+  codePage: number;
+  cutMode: PrinterCutMode;
+  drawerKick: boolean;
+  bitmapFallback: boolean;
+  isDefault: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+type PrintJobRecord = {
+  id: number;
+  profileId?: string | null;
+  type: string;
+  payload: any;
+  status: string;
+  attempts: number;
+  maxAttempts: number;
+  lastError?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastAttemptAt?: string | null;
+  nextAttemptAt?: string | null;
+};
+
 function mapRoleRow(row: any): RoleRecord {
   return {
     id: row.id,
@@ -213,6 +246,45 @@ function mapImportJobRow(row: any): ImportJobRecord {
     summary: row.summary,
     createdAt: row.createdAt,
     completedAt: row.completedAt,
+  };
+}
+
+function mapPrinterProfileRow(row: any): PrinterProfileRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type as PrinterType,
+    ip: row.ip,
+    port: row.port,
+    paperWidthMM: row.paperWidthMM,
+    encoding: row.encoding as PrinterEncoding,
+    codePage: row.codePage,
+    cutMode: row.cutMode as PrinterCutMode,
+    drawerKick: Boolean(row.drawerKick),
+    bitmapFallback: Boolean(row.bitmapFallback),
+    isDefault: Boolean(row.isDefault),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function mapPrintJobRow(row: any): PrintJobRecord {
+  return {
+    id: row.id,
+    profileId: row.profileId,
+    type: row.type,
+    payload: safeParseJSON<any>(row.payload, {
+      fallback: {},
+      context: `print_jobs.${row.id}`,
+    }),
+    status: row.status,
+    attempts: row.attempts,
+    maxAttempts: row.maxAttempts,
+    lastError: row.lastError,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    lastAttemptAt: row.lastAttemptAt,
+    nextAttemptAt: row.nextAttemptAt,
   };
 }
 
@@ -429,6 +501,44 @@ async function configureDatabase(database: SQLite.SQLiteDatabase) {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS printer_profiles (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      ip TEXT NOT NULL,
+      port INTEGER NOT NULL,
+      paperWidthMM INTEGER NOT NULL,
+      encoding TEXT NOT NULL,
+      codePage INTEGER NOT NULL,
+      cutMode TEXT NOT NULL,
+      drawerKick INTEGER NOT NULL DEFAULT 0,
+      bitmapFallback INTEGER NOT NULL DEFAULT 0,
+      isDefault INTEGER NOT NULL DEFAULT 0,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_printer_profiles_default ON printer_profiles(isDefault);
+
+    CREATE TABLE IF NOT EXISTS print_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      profileId TEXT,
+      type TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      status TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      maxAttempts INTEGER NOT NULL DEFAULT 3,
+      lastError TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      lastAttemptAt TEXT,
+      nextAttemptAt TEXT,
+      FOREIGN KEY (profileId) REFERENCES printer_profiles(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_print_jobs_status ON print_jobs(status);
+    CREATE INDEX IF NOT EXISTS idx_print_jobs_next_attempt ON print_jobs(nextAttemptAt);
 
     CREATE TABLE IF NOT EXISTS roles (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1720,6 +1830,241 @@ export const database = {
     );
   },
 
+  // Printer profiles
+  async listPrinterProfiles(): Promise<PrinterProfileRecord[]> {
+    return runDatabaseOperation(async (database) => {
+      const rows = await database.getAllAsync(
+        'SELECT * FROM printer_profiles ORDER BY isDefault DESC, name COLLATE NOCASE'
+      );
+      return rows.map(mapPrinterProfileRow);
+    });
+  },
+
+  async getPrinterProfile(id: string): Promise<PrinterProfileRecord | null> {
+    return runDatabaseOperation(async (database) => {
+      const row = await database.getFirstAsync('SELECT * FROM printer_profiles WHERE id = ?', [id]);
+      return row ? mapPrinterProfileRow(row) : null;
+    });
+  },
+
+  async upsertPrinterProfile(profile: PrinterProfileRecord): Promise<string> {
+    return runDatabaseOperation(async (database) => {
+      const now = new Date().toISOString();
+      if (profile.isDefault) {
+        await database.runAsync('UPDATE printer_profiles SET isDefault = 0');
+      }
+
+      const existing = await database.getFirstAsync(
+        'SELECT id FROM printer_profiles WHERE id = ?',
+        [profile.id]
+      );
+
+      if (existing) {
+        await database.runAsync(
+          `
+            UPDATE printer_profiles
+            SET name = ?, type = ?, ip = ?, port = ?, paperWidthMM = ?, encoding = ?, codePage = ?,
+                cutMode = ?, drawerKick = ?, bitmapFallback = ?, isDefault = ?, updatedAt = ?
+            WHERE id = ?
+          `,
+          toBindParams([
+            profile.name,
+            profile.type,
+            profile.ip,
+            profile.port,
+            profile.paperWidthMM,
+            profile.encoding,
+            profile.codePage,
+            profile.cutMode,
+            profile.drawerKick ? 1 : 0,
+            profile.bitmapFallback ? 1 : 0,
+            profile.isDefault ? 1 : 0,
+            now,
+            profile.id,
+          ])
+        );
+        return profile.id;
+      }
+
+      await database.runAsync(
+        `
+          INSERT INTO printer_profiles
+            (id, name, type, ip, port, paperWidthMM, encoding, codePage, cutMode, drawerKick,
+             bitmapFallback, isDefault, createdAt, updatedAt)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        toBindParams([
+          profile.id,
+          profile.name,
+          profile.type,
+          profile.ip,
+          profile.port,
+          profile.paperWidthMM,
+          profile.encoding,
+          profile.codePage,
+          profile.cutMode,
+          profile.drawerKick ? 1 : 0,
+          profile.bitmapFallback ? 1 : 0,
+          profile.isDefault ? 1 : 0,
+          profile.createdAt || now,
+          now,
+        ])
+      );
+      return profile.id;
+    });
+  },
+
+  async setDefaultPrinterProfile(id: string) {
+    return runDatabaseOperation(async (database) => {
+      await database.runAsync('UPDATE printer_profiles SET isDefault = 0');
+      await database.runAsync(
+        'UPDATE printer_profiles SET isDefault = 1, updatedAt = ? WHERE id = ?',
+        toBindParams([new Date().toISOString(), id])
+      );
+    });
+  },
+
+  async deletePrinterProfile(id: string) {
+    return runDatabaseOperation((database) =>
+      database.runAsync('DELETE FROM printer_profiles WHERE id = ?', [id])
+    );
+  },
+
+  // Print jobs
+  async createPrintJob(job: {
+    profileId?: string | null;
+    type: string;
+    payload: any;
+    status?: string;
+    attempts?: number;
+    maxAttempts?: number;
+    lastError?: string | null;
+    nextAttemptAt?: string | null;
+  }): Promise<number> {
+    return runDatabaseOperation(async (database) => {
+      const now = new Date().toISOString();
+      const result = await database.runAsync(
+        `
+          INSERT INTO print_jobs
+            (profileId, type, payload, status, attempts, maxAttempts, lastError,
+             createdAt, updatedAt, lastAttemptAt, nextAttemptAt)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        toBindParams([
+          job.profileId ?? null,
+          job.type,
+          JSON.stringify(job.payload ?? {}),
+          job.status ?? 'pending',
+          job.attempts ?? 0,
+          job.maxAttempts ?? 3,
+          job.lastError ?? null,
+          now,
+          now,
+          null,
+          job.nextAttemptAt ?? null,
+        ])
+      );
+      return result.lastInsertRowId;
+    });
+  },
+
+  async listPrintJobs(limit = 100): Promise<PrintJobRecord[]> {
+    return runDatabaseOperation(async (database) => {
+      const rows = await database.getAllAsync(
+        'SELECT * FROM print_jobs ORDER BY datetime(createdAt) DESC LIMIT ?',
+        [limit]
+      );
+      return rows.map(mapPrintJobRow);
+    });
+  },
+
+  async getNextPendingPrintJob(): Promise<PrintJobRecord | null> {
+    return runDatabaseOperation(async (database) => {
+      const now = new Date().toISOString();
+      const row = await database.getFirstAsync(
+        `
+          SELECT * FROM print_jobs
+          WHERE status IN ('pending', 'retrying')
+            AND (nextAttemptAt IS NULL OR nextAttemptAt <= ?)
+          ORDER BY datetime(createdAt) ASC
+          LIMIT 1
+        `,
+        [now]
+      );
+      return row ? mapPrintJobRow(row) : null;
+    });
+  },
+
+  async updatePrintJob(
+    id: number,
+    updates: {
+      status?: string;
+      attempts?: number;
+      maxAttempts?: number;
+      lastError?: string | null;
+      lastAttemptAt?: string | null;
+      nextAttemptAt?: string | null;
+    }
+  ) {
+    const fields: string[] = [];
+    const values: unknown[] = [];
+
+    if (updates.status !== undefined) {
+      fields.push('status = ?');
+      values.push(updates.status);
+    }
+    if (updates.attempts !== undefined) {
+      fields.push('attempts = ?');
+      values.push(updates.attempts);
+    }
+    if (updates.maxAttempts !== undefined) {
+      fields.push('maxAttempts = ?');
+      values.push(updates.maxAttempts);
+    }
+    if (updates.lastError !== undefined) {
+      fields.push('lastError = ?');
+      values.push(updates.lastError);
+    }
+    if (updates.lastAttemptAt !== undefined) {
+      fields.push('lastAttemptAt = ?');
+      values.push(updates.lastAttemptAt);
+    }
+    if (updates.nextAttemptAt !== undefined) {
+      fields.push('nextAttemptAt = ?');
+      values.push(updates.nextAttemptAt);
+    }
+
+    fields.push('updatedAt = ?');
+    values.push(new Date().toISOString());
+    values.push(id);
+
+    return runDatabaseOperation((database) =>
+      database.runAsync(
+        `UPDATE print_jobs SET ${fields.join(', ')} WHERE id = ?`,
+        toBindParams(values)
+      )
+    );
+  },
+
+  async deletePrintJob(id: number) {
+    return runDatabaseOperation((database) =>
+      database.runAsync('DELETE FROM print_jobs WHERE id = ?', [id])
+    );
+  },
+
+  async deletePrintJobsByStatus(statuses: string[]) {
+    if (!statuses.length) {
+      return;
+    }
+    const placeholders = statuses.map(() => '?').join(', ');
+    return runDatabaseOperation((database) =>
+      database.runAsync(
+        `DELETE FROM print_jobs WHERE status IN (${placeholders})`,
+        toBindParams(statuses)
+      )
+    );
+  },
+
   // Roles
   async ensureDefaultRoles(): Promise<RoleRecord[]> {
     return runDatabaseOperation(async (database) => {
@@ -2236,4 +2581,3 @@ export const database = {
 };
 
 export { database as db };
-

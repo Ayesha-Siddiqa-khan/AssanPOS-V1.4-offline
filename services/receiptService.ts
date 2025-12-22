@@ -61,6 +61,12 @@ async function ensureShareablePdfUri(fileUri: string, fileName?: string) {
 
   const safeName = sanitizePdfFileName(fileName ?? 'Receipt');
   const targetUri = `${dir}${safeName}`;
+  const normalizeUri = (value: string) =>
+    value.replace(/^file:\/\//, '').replace(/\/+$/, '');
+
+  if (normalizeUri(fileUri) === normalizeUri(targetUri)) {
+    return fileUri;
+  }
 
   // Best-effort replace existing file.
   try {
@@ -70,8 +76,45 @@ async function ensureShareablePdfUri(fileUri: string, fileName?: string) {
   }
 
   // Copy instead of move to avoid edge cases across providers.
-  await FileSystem.copyAsync({ from: fileUri, to: targetUri });
+  try {
+    await FileSystem.copyAsync({ from: fileUri, to: targetUri });
+    return targetUri;
+  } catch (error) {
+    console.warn('ensureShareablePdfUri: copy failed, using original', error);
+    return fileUri;
+  }
+}
+
+function isBase64LikelyEmpty(base64?: string | null) {
+  return !base64 || base64.length < 2000;
+}
+
+async function writeBase64PdfToCache(base64: string, fileName?: string) {
+  const dir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+  if (!dir) return null;
+
+  const safeName = sanitizePdfFileName(fileName ?? 'Receipt');
+  const targetUri = `${dir}${safeName}`;
+
+  try {
+    await FileSystem.deleteAsync(targetUri, { idempotent: true });
+  } catch {
+    // ignore
+  }
+
+  await FileSystem.writeAsStringAsync(targetUri, base64, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
   return targetUri;
+}
+
+async function getPdfFileSize(uri: string) {
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    return info.size ?? 0;
+  } catch {
+    return 0;
+  }
 }
 
 function estimateThermalHeightMm(html: string, widthMm: number) {
@@ -95,6 +138,7 @@ function withThermalPageSize(
   opts?: { forceThermalOnAndroid?: boolean }
 ) {
   const isAndroid = Platform.OS === 'android';
+  const useAndroidA4Layout = isAndroid && !opts?.forceThermalOnAndroid;
   const widthPx = Math.round(widthMm * 3.7795); // 1mm = ~3.78px at 96 DPI
   const widthInches = (widthMm / 25.4).toFixed(2);
   const heightInches = (heightMm / 25.4).toFixed(2);
@@ -104,7 +148,7 @@ function withThermalPageSize(
   // gets scaled down and becomes unreadable. These scoped overrides enlarge
   // the receipt layout so it remains readable after scaling.
   const androidReceiptOverrides =
-    isAndroid
+    useAndroidA4Layout
       ? `
       .asanpos-receipt {
         /* Render large on A4; printer app will scale to 80mm */
@@ -131,7 +175,7 @@ function withThermalPageSize(
     <meta name="viewport" content="width=${widthPx}, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
       ${
-        isAndroid && !opts?.forceThermalOnAndroid
+        useAndroidA4Layout
           ? `
       @page { size: A4; margin: 0; }
       @media print { @page { size: A4; margin: 0; } }
@@ -158,7 +202,7 @@ function withThermalPageSize(
         print-color-adjust: exact !important;
       }
       ${
-        isAndroid && !opts?.forceThermalOnAndroid
+        useAndroidA4Layout
           ? `
       html, body { margin: 0; padding: 0; }
       body { overflow-x: hidden; }
@@ -204,8 +248,9 @@ async function isPdfLikelyEmpty(uri: string) {
     const info = await FileSystem.getInfoAsync(uri);
     if (!info.exists) return true;
     const size = info.size ?? 0;
-    // Heuristic: PDFs with only the skeleton tend to be under 1 KB
-    return size < 1200;
+    const minBytes = Platform.OS === 'android' ? 3500 : 1200;
+    // Heuristic: PDFs with only the skeleton tend to be very small.
+    return size < minBytes;
   } catch {
     return false;
   }
@@ -520,12 +565,20 @@ export async function createReceiptPdf(
   const isAndroid = Platform.OS === 'android';
   const widthMm = resolveThermalWidth(options?.widthMm);
   const heightMm = options?.heightMm ?? estimateThermalHeightMm(html, widthMm);
-  const normalizedHtml = withThermalPageSize(html, widthMm, heightMm);
+  const normalizedHtml = withThermalPageSize(html, widthMm, heightMm, {
+    forceThermalOnAndroid: isAndroid,
+  });
 
   const printOptions: any = isAndroid
     ? {
         html: normalizedHtml,
-        base64: false,
+        base64: true,
+        width: mmToPt(widthMm),
+        height: mmToPt(heightMm),
+        margins: { top: 0, left: 0, right: 0, bottom: 0 },
+        printerMargins: { top: 0, left: 0, right: 0, bottom: 0 },
+        orientation: 'portrait',
+        useMarkupHeight: true,
       }
     : {
         html: normalizedHtml,
@@ -540,12 +593,22 @@ export async function createReceiptPdf(
 
   let result = await Print.printToFileAsync(printOptions);
 
-  // If Android produced a suspiciously small/empty PDF, retry with thermal sizing
+  if (isAndroid && !isBase64LikelyEmpty(result.base64)) {
+    const base64Uri = await writeBase64PdfToCache(result.base64, options?.fileName);
+    if (base64Uri) {
+      result = { ...result, uri: base64Uri };
+    }
+  }
+
+  // If Android produced a suspiciously small/empty PDF, retry with A4 sizing.
   if (isAndroid && (await isPdfLikelyEmpty(result.uri))) {
-    const fallbackHtml = withThermalPageSize(html, widthMm, heightMm, { forceThermalOnAndroid: true });
+    const originalSize = await getPdfFileSize(result.uri);
+    const fallbackHtml = withThermalPageSize(html, widthMm, heightMm, {
+      forceThermalOnAndroid: false,
+    });
     const fallbackOptions: any = {
       html: fallbackHtml,
-      base64: false,
+      base64: true,
       width: mmToPt(widthMm),
       height: mmToPt(heightMm),
       margins: { top: 0, left: 0, right: 0, bottom: 0 },
@@ -553,7 +616,20 @@ export async function createReceiptPdf(
       orientation: 'portrait',
       useMarkupHeight: true,
     };
-    result = await Print.printToFileAsync(fallbackOptions);
+    let fallbackResult = await Print.printToFileAsync(fallbackOptions);
+    if (isAndroid && !isBase64LikelyEmpty(fallbackResult.base64)) {
+      const fallbackBase64Uri = await writeBase64PdfToCache(
+        fallbackResult.base64,
+        options?.fileName
+      );
+      if (fallbackBase64Uri) {
+        fallbackResult = { ...fallbackResult, uri: fallbackBase64Uri };
+      }
+    }
+    const fallbackSize = await getPdfFileSize(fallbackResult.uri);
+    if (fallbackSize > originalSize) {
+      result = fallbackResult;
+    }
   }
 
   if (options?.fileName) {

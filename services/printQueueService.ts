@@ -8,10 +8,13 @@ import { applyDeveloperFooter } from './receiptPreferences';
 const LEGACY_MIGRATION_KEY = 'printerProfilesMigrated';
 const RETRY_BASE_DELAY_MS = 4000;
 const RETRY_MAX_DELAY_MS = 60000;
+const PRINT_JOB_TIMEOUT_MS = 20000;
 
 let processing = false;
+let processingStartedAt: number | null = null;
 let workerTimer: NodeJS.Timeout | null = null;
 let appStateListener: { remove: () => void } | null = null;
+let workerStarted = false;
 
 const computeBackoffMs = (attempts: number) => {
   const delay = RETRY_BASE_DELAY_MS * Math.pow(2, Math.max(0, attempts - 1));
@@ -72,13 +75,14 @@ export async function enqueueReceiptPrint(
   payload: ReceiptData,
   options?: { maxAttempts?: number; type?: 'receipt' | 'test' }
 ): Promise<number> {
+  void startPrintQueueWorker();
   const jobId = await db.createPrintJob({
     profileId: profile.id,
     type: options?.type ?? 'receipt',
     payload,
     maxAttempts: options?.maxAttempts ?? 3,
   });
-  void processPrintQueue();
+  void processPrintQueue({ force: true });
   return jobId;
 }
 
@@ -91,11 +95,16 @@ export async function enqueueTestPrint(profile: NetworkPrinterConfig): Promise<n
   return enqueueReceiptPrint(profile, payload, { type: 'test' });
 }
 
-export async function processPrintQueue() {
-  if (processing) {
-    return;
+export async function processPrintQueue(options?: { force?: boolean }) {
+  if (processing && !options?.force) {
+    const now = Date.now();
+    if (!processingStartedAt || now - processingStartedAt < PRINT_JOB_TIMEOUT_MS * 2) {
+      return;
+    }
+    processing = false;
   }
   processing = true;
+  processingStartedAt = Date.now();
   try {
     let job = await db.getNextPendingPrintJob();
     while (job) {
@@ -104,6 +113,21 @@ export async function processPrintQueue() {
     }
   } finally {
     processing = false;
+    processingStartedAt = null;
+  }
+}
+
+async function runWithTimeout<T>(promise: Promise<T>, timeoutMs: number) {
+  let timer: NodeJS.Timeout | null = null;
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      timer = setTimeout(() => reject(new Error('Print timed out')), timeoutMs);
+      promise.then(resolve).catch(reject);
+    });
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
   }
 }
 
@@ -133,7 +157,19 @@ async function executePrintJob(job: PrintJob) {
     nextAttemptAt: null,
   });
 
-  const result = await printerService.printReceipt(profile, job.payload as ReceiptData);
+  let result;
+  try {
+    result = await runWithTimeout(
+      printerService.printReceipt(profile, job.payload as ReceiptData),
+      PRINT_JOB_TIMEOUT_MS
+    );
+  } catch (error: any) {
+    result = {
+      success: false,
+      message: 'Print timed out - check printer connection',
+      error: error?.message || 'PRINT_TIMEOUT',
+    };
+  }
   if (result.success) {
     await db.updatePrintJob(job.id, {
       status: 'success',
@@ -180,9 +216,17 @@ export async function clearSuccessfulJobs() {
   return db.deletePrintJobsByStatus(['success']);
 }
 
+export async function clearPendingJobs() {
+  return db.deletePrintJobsByStatus(['pending', 'printing', 'retrying', 'failed', 'cancelled']);
+}
+
 export async function startPrintQueueWorker() {
+  if (workerStarted) {
+    return;
+  }
+  workerStarted = true;
   await migrateLegacyPrinters();
-  void processPrintQueue();
+  void processPrintQueue({ force: true });
   if (!workerTimer) {
     workerTimer = setInterval(() => {
       void processPrintQueue();

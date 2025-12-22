@@ -34,7 +34,7 @@ export default function SaleSuccessModal() {
   const { sales } = useData();
   const { profile: shopProfile } = useShop();
   const insets = useSafeAreaInsets();
-  const { saleId, amountReceived, amountPaidDisplay } = useLocalSearchParams<{
+  const { saleId, amountReceived, amountPaidDisplay, printJobId } = useLocalSearchParams<{
     saleId?: string;
     amountReceived?: string;
     amountPaidDisplay?: string;
@@ -366,7 +366,7 @@ export default function SaleSuccessModal() {
     setIsLoadingPrintStatus(true);
     try {
       await retryPrintJob(queuedPrintJobId);
-      await processPrintQueue();
+      await processPrintQueue({ force: true });
       Toast.show({ type: 'success', text1: t('Retry queued') });
     } catch (error) {
       console.error('Retry print job failed', error);

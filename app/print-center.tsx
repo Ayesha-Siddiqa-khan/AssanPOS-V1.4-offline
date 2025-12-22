@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,6 +15,7 @@ import Toast from 'react-native-toast-message';
 import { db } from '../lib/database';
 import {
   cancelPrintJob,
+  clearAllPrintJobs,
   clearSuccessfulJobs,
   enqueueTestPrint,
   listPrintJobs,
@@ -98,6 +100,25 @@ export default function PrintCenterScreen() {
     await db.upsertPrinterProfile(newProfile);
     await refresh();
     Toast.show({ type: 'success', text1: 'Printer profile saved' });
+  };
+
+  const handleClearQueue = () => {
+    Alert.alert(
+      'Clear print queue',
+      'Remove all print jobs from the queue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            await clearAllPrintJobs();
+            await refresh();
+            Toast.show({ type: 'success', text1: 'Queue cleared' });
+          },
+        },
+      ]
+    );
   };
 
   const renderDiagnostics = () => {
@@ -261,7 +282,15 @@ export default function PrintCenterScreen() {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Print Queue</Text>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>Print Queue</Text>
+            {jobs.length > 0 && (
+              <TouchableOpacity style={styles.scanButton} onPress={handleClearQueue}>
+                <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                <Text style={[styles.scanButtonText, { color: '#ef4444' }]}>Clear</Text>
+              </TouchableOpacity>
+            )}
+          </View>
           {jobs.length === 0 && <Text style={styles.mutedText}>Queue is empty.</Text>}
           {jobs.map((job) => (
             <View key={job.id} style={styles.queueRow}>

@@ -216,6 +216,17 @@ export async function clearSuccessfulJobs() {
   return db.deletePrintJobsByStatus(['success']);
 }
 
+export async function clearAllPrintJobs() {
+  return db.deletePrintJobsByStatus([
+    'pending',
+    'printing',
+    'retrying',
+    'success',
+    'failed',
+    'cancelled',
+  ]);
+}
+
 export async function startPrintQueueWorker() {
   if (workerStarted) {
     return;

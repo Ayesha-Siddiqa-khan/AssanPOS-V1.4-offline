@@ -135,9 +135,12 @@ function withThermalPageSize(
   html: string,
   widthMm: number,
   heightMm: number,
-  opts?: { forceThermalOnAndroid?: boolean }
+  opts?: { forceThermalOnAndroid?: boolean; applyAndroidScaleOverrides?: boolean }
 ) {
   const isAndroid = Platform.OS === 'android';
+  const allowAndroidScaleOverrides = opts?.applyAndroidScaleOverrides !== false;
+  const useAndroidA4Layout =
+    isAndroid && allowAndroidScaleOverrides && !opts?.forceThermalOnAndroid;
   const widthPx = Math.round(widthMm * 3.7795); // 1mm = ~3.78px at 96 DPI
   const widthInches = (widthMm / 25.4).toFixed(2);
   const heightInches = (heightMm / 25.4).toFixed(2);
@@ -147,7 +150,7 @@ function withThermalPageSize(
   // gets scaled down and becomes unreadable. These scoped overrides enlarge
   // the receipt layout so it remains readable after scaling.
   const androidReceiptOverrides =
-    isAndroid
+    isAndroid && allowAndroidScaleOverrides
       ? `
       .asanpos-receipt {
         /* Render large on A4; printer app will scale to 80mm */
@@ -174,7 +177,7 @@ function withThermalPageSize(
     <meta name="viewport" content="width=${widthPx}, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
       ${
-        isAndroid && !opts?.forceThermalOnAndroid
+        useAndroidA4Layout
           ? `
       @page { size: A4; margin: 0; }
       @media print { @page { size: A4; margin: 0; } }
@@ -201,7 +204,7 @@ function withThermalPageSize(
         print-color-adjust: exact !important;
       }
       ${
-        isAndroid && !opts?.forceThermalOnAndroid
+        useAndroidA4Layout
           ? `
       html, body { margin: 0; padding: 0; }
       body { overflow-x: hidden; }
@@ -566,6 +569,7 @@ export async function createReceiptPdf(
   const heightMm = options?.heightMm ?? estimateThermalHeightMm(html, widthMm);
   const normalizedHtml = withThermalPageSize(html, widthMm, heightMm, {
     forceThermalOnAndroid: isAndroid,
+    applyAndroidScaleOverrides: false,
   });
 
   const printOptions: any = isAndroid

@@ -138,7 +138,6 @@ function withThermalPageSize(
   opts?: { forceThermalOnAndroid?: boolean }
 ) {
   const isAndroid = Platform.OS === 'android';
-  const useAndroidA4Layout = isAndroid && !opts?.forceThermalOnAndroid;
   const widthPx = Math.round(widthMm * 3.7795); // 1mm = ~3.78px at 96 DPI
   const widthInches = (widthMm / 25.4).toFixed(2);
   const heightInches = (heightMm / 25.4).toFixed(2);
@@ -148,7 +147,7 @@ function withThermalPageSize(
   // gets scaled down and becomes unreadable. These scoped overrides enlarge
   // the receipt layout so it remains readable after scaling.
   const androidReceiptOverrides =
-    useAndroidA4Layout
+    isAndroid
       ? `
       .asanpos-receipt {
         /* Render large on A4; printer app will scale to 80mm */
@@ -175,7 +174,7 @@ function withThermalPageSize(
     <meta name="viewport" content="width=${widthPx}, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
       ${
-        useAndroidA4Layout
+        isAndroid && !opts?.forceThermalOnAndroid
           ? `
       @page { size: A4; margin: 0; }
       @media print { @page { size: A4; margin: 0; } }
@@ -202,7 +201,7 @@ function withThermalPageSize(
         print-color-adjust: exact !important;
       }
       ${
-        useAndroidA4Layout
+        isAndroid && !opts?.forceThermalOnAndroid
           ? `
       html, body { margin: 0; padding: 0; }
       body { overflow-x: hidden; }

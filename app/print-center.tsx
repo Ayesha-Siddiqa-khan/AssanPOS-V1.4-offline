@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,7 +14,6 @@ import Toast from 'react-native-toast-message';
 import { db } from '../lib/database';
 import {
   cancelPrintJob,
-  clearPendingJobs,
   clearSuccessfulJobs,
   enqueueTestPrint,
   listPrintJobs,
@@ -80,25 +78,6 @@ export default function PrintCenterScreen() {
     } finally {
       setIsScanning(false);
     }
-  };
-
-  const handleClearPending = () => {
-    Alert.alert(
-      'Clear print queue',
-      'Remove all pending and failed print jobs?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear',
-          style: 'destructive',
-          onPress: async () => {
-            await clearPendingJobs();
-            await refresh();
-            Toast.show({ type: 'success', text1: 'Queue cleared' });
-          },
-        },
-      ]
-    );
   };
 
   const handleSaveDiscovery = async (result: DiscoveryResult) => {
@@ -201,10 +180,6 @@ export default function PrintCenterScreen() {
             >
               <Ionicons name="trash-outline" size={18} color="#2563eb" />
               <Text style={styles.actionText}>Clear Done</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton} onPress={handleClearPending}>
-              <Ionicons name="trash-outline" size={18} color="#ef4444" />
-              <Text style={[styles.actionText, { color: '#ef4444' }]}>Clear Queue</Text>
             </TouchableOpacity>
           </View>
         </View>

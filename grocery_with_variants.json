@@ -1,0 +1,58 @@
+[
+  {
+    "name": "Sunrise Basmati Rice",
+    "category": "Grocery",
+    "hasVariants": true,
+    "variants": [
+      { "id": 1, "name": "1kg", "price": 430, "stock": 20, "minStock": 5, "barcode": "SR-1KG" },
+      { "id": 2, "name": "5kg", "price": 2100, "stock": 8, "minStock": 2, "barcode": "SR-5KG" }
+    ]
+  },
+  {
+    "name": "Eggs Tray",
+    "category": "Dairy",
+    "hasVariants": false,
+    "price": 360,
+    "stock": 12,
+    "minStock": 4,
+    "barcode": "899999111222",
+    "unit": "tray",
+    "costPrice": 320
+  },
+  {
+    "name": "Shampoo Luxe",
+    "category": "Personal Care",
+    "hasVariants": true,
+    "variants": [
+      {
+        "id": 1,
+        "name": "Small",
+        "size": "200ml",
+        "price": 520,
+        "stock": 15,
+        "minStock": 4,
+        "barcode": "SH-LUXE-S"
+      },
+      {
+        "id": 2,
+        "name": "Large",
+        "size": "400ml",
+        "price": 910,
+        "stock": 10,
+        "minStock": 3,
+        "barcode": "SH-LUXE-L"
+      }
+    ]
+  },
+  {
+    "name": "Salt Pack",
+    "category": "Grocery",
+    "hasVariants": false,
+    "price": 45,
+    "stock": 50,
+    "minStock": 10,
+    "barcode": "1234567890123",
+    "unit": "kg",
+    "costPrice": 35
+  }
+]

@@ -1,0 +1,1010 @@
+import * as DocumentPicker from 'expo-document-picker';
+import * as Sharing from 'expo-sharing';
+import * as TaskManager from 'expo-task-manager';
+import * as BackgroundFetch from 'expo-background-fetch';
+import Papa from 'papaparse';
+import { Platform } from 'react-native';
+import Constants from 'expo-constants';
+import { db } from '../lib/database';
+import {
+  readAsStringAsync,
+  writeAsStringAsync,
+  documentDirectory,
+  cacheDirectory,
+  EncodingType,
+  StorageAccessFramework,
+} from 'expo-file-system/legacy';
+
+const EXPORT_TASK = 'pos-export-task';
+const INVENTORY_BACKUP_DIR_KEY = 'inventory.downloadDirUri';
+const INVENTORY_BACKUP_META_KEY = 'inventory.lastBackupMeta';
+const DOWNLOAD_DIR_NAME = 'Download';
+const INVENTORY_SNAPSHOT_VERSION = 2;
+const INVENTORY_FILE_EXTENSION = '.json';
+const INVENTORY_CSV_EXTENSION = '.csv';
+const SNAPSHOT_MIME_TYPE = 'application/json';
+const CSV_MIME_TYPE = 'text/csv';
+const SAMPLE_INVENTORY_CSV = `name,category,hasVariants,variants,price,stock,minStock,barcode,unit,costPrice
+"Sunrise Basmati Rice",Grocery,true,"[{""id"":1,""name"":""1kg"",""price"":430,""stock"":20,""minStock"":5},{""id"":2,""name"":""5kg"",""price"":2100,""stock"":8,""minStock"":2}]",,,,"",""
+"Eggs Tray",Dairy,false,,"360",12,4,899999111222,tray,320
+"Shampoo Luxe",Personal Care,true,"[{""id"":1,""name"":""Small"",""size"":""200ml"",""price"":520,""stock"":15,""minStock"":4},{""id"":2,""name"":""Large"",""size"":""400ml"",""price"":910,""stock"":10,""minStock"":3}]",,,,"",""
+"Salt Pack",Grocery,false,,"45",50,10,1234567890123,kg,35
+`;
+const SAMPLE_INVENTORY_JSON: ExportableProduct[] = [
+  {
+    name: 'Sunrise Basmati Rice',
+    category: 'Grocery',
+    hasVariants: true,
+    variants: [
+      { id: 1, name: '1kg', price: 430, stock: 20, minStock: 5, barcode: 'SR-1KG' },
+      { id: 2, name: '5kg', price: 2100, stock: 8, minStock: 2, barcode: 'SR-5KG' },
+    ],
+  },
+  {
+    name: 'Eggs Tray',
+    category: 'Dairy',
+    hasVariants: false,
+    price: 360,
+    stock: 12,
+    minStock: 4,
+    barcode: '899999111222',
+    unit: 'tray',
+    costPrice: 320,
+  },
+  {
+    name: 'Shampoo Luxe',
+    category: 'Personal Care',
+    hasVariants: true,
+    variants: [
+      { id: 1, name: 'Small', size: '200ml', price: 520, stock: 15, minStock: 4, barcode: 'SH-LUXE-S' },
+      { id: 2, name: 'Large', size: '400ml', price: 910, stock: 10, minStock: 3, barcode: 'SH-LUXE-L' },
+    ],
+  },
+  {
+    name: 'Salt Pack',
+    category: 'Grocery',
+    hasVariants: false,
+    price: 45,
+    stock: 50,
+    minStock: 10,
+    barcode: '1234567890123',
+    unit: 'kg',
+    costPrice: 35,
+  },
+];
+const canScheduleBackgroundTasks = Platform.OS !== 'web' && Constants.appOwnership !== 'expo';
+let exportTaskDefined = false;
+
+type CsvRow = Record<string, string | number | null>;
+
+type ExportableVariant = {
+  id: number;
+  name: string;
+  design?: string;
+  size?: string;
+  color?: string;
+  material?: string;
+  unit?: string;
+  price: number;
+  stock: number;
+  minStock: number;
+  barcode?: string;
+  costPrice: number;
+  customAttributeLabel?: string;
+  customAttributeValue?: string;
+};
+
+type ExportableProduct = {
+  name: string;
+  category: string;
+  hasVariants: boolean;
+  variants?: ExportableVariant[];
+  price: number | null;
+  stock: number | null;
+  minStock: number | null;
+  barcode: string | null;
+  unit: string | null;
+  costPrice: number | null;
+};
+
+type InventorySnapshot = {
+  version: number;
+  exportedAt: string;
+  source: 'local' | 'remote';
+  productCount: number;
+  products: ExportableProduct[];
+};
+
+type ExportSnapshotOptions = {
+  interactive?: boolean;
+};
+
+function ensureExportTaskDefinition() {
+  if (!canScheduleBackgroundTasks || exportTaskDefined) {
+    return;
+  }
+  try {
+    TaskManager.defineTask(EXPORT_TASK, async () => {
+      try {
+        await exportDataSnapshot(undefined, { interactive: false });
+        return BackgroundFetch.BackgroundFetchResult.NewData;
+      } catch (error) {
+        console.warn('Scheduled export failed', error);
+        return BackgroundFetch.BackgroundFetchResult.Failed;
+      }
+    });
+    exportTaskDefined = true;
+  } catch (error) {
+    console.warn('Failed to define export task:', error);
+  }
+}
+
+ensureExportTaskDefinition();
+
+const toNullableString = (value: unknown): string | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const str = String(value).trim();
+  return str.length ? str : null;
+};
+
+const normalizeNumericString = (value: unknown): string => {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  const str = String(value).trim();
+  // Remove thousands separators and spaces
+  return str.replace(/,/g, '').replace(/\s+/g, '');
+};
+
+const toNullableNumber = (value: unknown): number | null => {
+  const cleaned = normalizeNumericString(value);
+  if (!cleaned) {
+    return null;
+  }
+  const num = Number(cleaned);
+  return Number.isFinite(num) ? num : null;
+};
+
+const toNumberWithFallback = (value: unknown, fallback = 0): number => {
+  const cleaned = normalizeNumericString(value);
+  if (!cleaned) {
+    return fallback;
+  }
+  const num = Number(cleaned);
+  return Number.isFinite(num) ? num : fallback;
+};
+
+const parseVariantsPayload = (value: unknown): any[] | undefined => {
+  if (!value) {
+    return undefined;
+  }
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+    try {
+      const parsed = JSON.parse(trimmed);
+      return Array.isArray(parsed) ? parsed : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+};
+
+const sanitizeVariant = (variant: any, fallbackId: number): ExportableVariant | null => {
+  if (!variant || typeof variant !== 'object') {
+    return null;
+  }
+
+  const name = String(variant.name ?? '').trim();
+  if (!name) {
+    return null;
+  }
+
+  const parsedId = Number((variant.id ?? fallbackId));
+  const id = Number.isFinite(parsedId) ? parsedId : fallbackId;
+
+  return {
+    id,
+    name,
+    design: toNullableString(variant.design) ?? undefined,
+    size: toNullableString(variant.size) ?? undefined,
+    color: toNullableString(variant.color) ?? undefined,
+    material: toNullableString(variant.material) ?? undefined,
+    unit: toNullableString(variant.unit) ?? undefined,
+    price: toNumberWithFallback(variant.price),
+    stock: toNumberWithFallback(variant.stock),
+    minStock: toNumberWithFallback(variant.minStock),
+    barcode: toNullableString(variant.barcode) ?? undefined,
+    costPrice: toNumberWithFallback(variant.costPrice),
+    customAttributeLabel: toNullableString(variant.customAttributeLabel) ?? undefined,
+    customAttributeValue: toNullableString(variant.customAttributeValue) ?? undefined,
+  };
+};
+
+const sanitizeProductRecord = (product: any): ExportableProduct | null => {
+  if (!product || typeof product !== 'object') {
+    return null;
+  }
+
+  const name = String(product.name ?? '').trim();
+  if (!name) {
+    return null;
+  }
+
+  const category = String(product.category ?? '').trim() || 'General';
+  const variantPayload = parseVariantsPayload(product.variants);
+  const normalizedVariants = (variantPayload ?? [])
+    .map((variant, index) => sanitizeVariant(variant, index + 1))
+    .filter((variant): variant is ExportableVariant => Boolean(variant));
+
+  const rawHasVariants =
+    typeof product.hasVariants === 'string'
+      ? ['true', 'yes', 'y', '1', 't', 'tre'].includes(product.hasVariants.toLowerCase())
+      : Boolean(product.hasVariants);
+
+  const hasVariants = rawHasVariants || normalizedVariants.length > 0;
+
+  return {
+    name,
+    category,
+    hasVariants,
+    variants: hasVariants && normalizedVariants.length ? normalizedVariants : undefined,
+    price: toNullableNumber(product.price),
+    stock: toNullableNumber(product.stock),
+    minStock: toNullableNumber(product.minStock),
+    barcode: toNullableString(product.barcode),
+    unit: toNullableString(product.unit),
+    costPrice: toNullableNumber(product.costPrice),
+  };
+};
+
+const normalizeProductsForExport = (products: any[]): ExportableProduct[] => {
+  return products
+    .map(sanitizeProductRecord)
+    .filter((product): product is ExportableProduct => Boolean(product));
+};
+
+const serializeInventorySnapshot = (snapshot: InventorySnapshot) =>
+  JSON.stringify(snapshot, null, 2);
+
+const INVENTORY_CSV_COLUMNS = [
+  'name',
+  'category',
+  'hasVariants',
+  'variants',
+  'price',
+  'stock',
+  'minStock',
+  'barcode',
+  'unit',
+  'costPrice',
+];
+
+const buildInventoryCsvRows = (products: ExportableProduct[]): CsvRow[] =>
+  products.map((product) => ({
+    name: product.name,
+    category: product.category,
+    hasVariants: product.hasVariants ? 'true' : 'false',
+    variants: product.variants?.length ? JSON.stringify(product.variants) : '',
+    price: product.price ?? '',
+    stock: product.stock ?? '',
+    minStock: product.minStock ?? '',
+    barcode: product.barcode ?? '',
+    unit: product.unit ?? '',
+    costPrice: product.costPrice ?? '',
+  }));
+
+const getStoredBackupDirectory = async (): Promise<string | null> => {
+  const value = (await db.getSetting(INVENTORY_BACKUP_DIR_KEY)) as string | null;
+  return typeof value === 'string' && value.length > 0 ? value : null;
+};
+
+const persistBackupDirectory = (uri: string | null) =>
+  db.setSetting(INVENTORY_BACKUP_DIR_KEY, uri);
+
+type InventoryBackupMeta = {
+  fileName: string;
+  savedAt: string;
+  uri: string;
+  location: 'downloads' | 'internal';
+};
+
+const persistLastBackupMeta = (meta: InventoryBackupMeta) =>
+  db.setSetting(INVENTORY_BACKUP_META_KEY, meta);
+
+export const getLastInventoryBackupMeta = async () => {
+  const meta = (await db.getSetting(INVENTORY_BACKUP_META_KEY)) as InventoryBackupMeta | null;
+  return meta ?? null;
+};
+
+const getDownloadBaseUri = () => {
+  if (!StorageAccessFramework?.getUriForDirectoryInRoot) {
+    return undefined;
+  }
+  try {
+    return StorageAccessFramework.getUriForDirectoryInRoot(DOWNLOAD_DIR_NAME);
+  } catch (error) {
+    console.warn('[InventoryBackup] Failed to resolve downloads directory', error);
+    return undefined;
+  }
+};
+
+const requestDownloadsDirectoryPermissions = async (): Promise<string> => {
+  if (!StorageAccessFramework?.requestDirectoryPermissionsAsync) {
+    throw new Error('E_SAF_UNAVAILABLE');
+  }
+
+  const initialUri = getDownloadBaseUri();
+  const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync(initialUri);
+  if (!permissions.granted || !permissions.directoryUri) {
+    throw new Error('E_SAF_PERMISSION');
+  }
+
+  // Try to persist permissions if available
+  try {
+    if (typeof (StorageAccessFramework as any).persistPermissionsAsync === 'function') {
+      await (StorageAccessFramework as any).persistPermissionsAsync(permissions.directoryUri);
+    }
+  } catch (error) {
+    console.warn('[InventoryBackup] Unable to persist SAF permission', error);
+  }
+
+  await persistBackupDirectory(permissions.directoryUri);
+  return permissions.directoryUri;
+};
+
+export const promptForDownloadsDirectory = async () => {
+  try {
+    const uri = await requestDownloadsDirectoryPermissions();
+    return { granted: true, uri };
+  } catch (error) {
+    if ((error as Error)?.message === 'E_SAF_UNAVAILABLE') {
+      return { granted: false, reason: 'unavailable' as const };
+    }
+    if ((error as Error)?.message === 'E_SAF_PERMISSION') {
+      return { granted: false, reason: 'permission' as const };
+    }
+    throw error;
+  }
+};
+
+const ensureDownloadsDirectory = async (): Promise<string | null> => {
+  if (!StorageAccessFramework?.requestDirectoryPermissionsAsync) {
+    return null;
+  }
+  const stored = await getStoredBackupDirectory();
+  if (stored) {
+    return stored;
+  }
+  try {
+    return await requestDownloadsDirectoryPermissions();
+  } catch (error) {
+    console.warn('[InventoryBackup] Directory permission not granted', error);
+    return null;
+  }
+};
+
+const isSafPermissionError = (error: unknown) => {
+  const message = String((error as any)?.message ?? error ?? '').toLowerCase();
+  return (
+    message.includes('permission') ||
+    message.includes('eacces') ||
+    message.includes('not allowed') ||
+    message.includes('requires that you grant access') ||
+    message.includes('document tree has become invalid')
+  );
+};
+
+export async function saveSampleInventoryFile(
+  format: 'csv' | 'json',
+  options?: { share?: boolean }
+): Promise<{ uri: string; fileName: string }> {
+  const share = options?.share ?? true;
+  const fileName = format === 'csv' ? 'inventory-sample.csv' : 'inventory-sample.json';
+  const content =
+    format === 'csv' ? SAMPLE_INVENTORY_CSV : JSON.stringify(SAMPLE_INVENTORY_JSON, null, 2);
+  const baseDir = (documentDirectory ?? cacheDirectory ?? '').replace(/\/?$/, '/');
+  const fileUri = `${baseDir}${fileName}`;
+
+  await writeAsStringAsync(fileUri, content, { encoding: EncodingType.UTF8 });
+
+  if (share && (await Sharing.isAvailableAsync())) {
+    const mimeType = format === 'csv' ? 'text/csv' : SNAPSHOT_MIME_TYPE;
+    await Sharing.shareAsync(fileUri, { mimeType });
+  }
+
+  return { uri: fileUri, fileName };
+}
+
+export async function importProductsFromCsv(preselectedUri?: string) {
+  let targetUri = preselectedUri ?? null;
+  let fileLabel: string | undefined;
+
+  if (!targetUri) {
+    const pickerResult = await DocumentPicker.getDocumentAsync({
+      copyToCacheDirectory: true,
+      type: '*/*',
+      multiple: false,
+    });
+
+    const pickerCancelled =
+      (typeof pickerResult.canceled === 'boolean' && pickerResult.canceled) ||
+      ((pickerResult as any).type === 'cancel');
+
+    if (pickerCancelled) {
+      return null;
+    }
+
+    const asset =
+      pickerResult.assets?.[0] ||
+      ((pickerResult as any).type === 'success'
+        ? {
+            uri: (pickerResult as any).uri,
+            name: (pickerResult as any).name ?? 'inventory-backup.csv',
+          }
+        : null);
+
+    if (!asset || !asset.uri) {
+      return null;
+    }
+
+    targetUri = asset.uri;
+    fileLabel = asset.name;
+  } else {
+    fileLabel = decodeURIComponent(targetUri.split('/').pop() ?? 'inventory-backup.csv');
+  }
+
+  if (!targetUri) {
+    return null;
+  }
+
+  let fileContent: string;
+  try {
+    if (
+      targetUri.startsWith('content://') &&
+      StorageAccessFramework?.readAsStringAsync
+    ) {
+      fileContent = await StorageAccessFramework.readAsStringAsync(targetUri);
+    } else {
+      fileContent = await readAsStringAsync(targetUri, { encoding: EncodingType.UTF8 });
+    }
+  } catch (error) {
+    // Fallback to plain read if SAF read fails
+    try {
+      fileContent = await readAsStringAsync(targetUri, { encoding: EncodingType.UTF8 });
+    } catch (fallbackError) {
+      if (isSafPermissionError(error) || isSafPermissionError(fallbackError)) {
+        throw new Error('E_SAF_PERMISSION');
+      }
+      throw fallbackError ?? error;
+    }
+  }
+
+  const parsedBackup = parseInventoryBackupContent(fileContent);
+  if (!parsedBackup.products.length) {
+    throw new Error('E_EMPTY_BACKUP');
+  }
+
+  // Get existing products to check for duplicates
+  const existingProducts = await db.getAllProducts();
+  const existingProductMap = new Map(
+    existingProducts.map((p: any) => [p.name.toLowerCase().trim(), p])
+  );
+
+  let addedCount = 0;
+  let updatedCount = 0;
+  let skippedCount = 0;
+
+  await db.runInTransaction(async (connection) => {
+    for (const product of parsedBackup.products) {
+      const normalizedName = product.name.toLowerCase().trim();
+      const existing = existingProductMap.get(normalizedName);
+
+      if (existing) {
+        // Update existing product
+        try {
+          await db.updateProduct(existing.id, product, { connection });
+          updatedCount++;
+        } catch (error) {
+          console.warn(`Failed to update product: ${product.name}`, error);
+          skippedCount++;
+        }
+      } else {
+        // Add new product
+        try {
+          await db.addProduct(product, { connection });
+          addedCount++;
+        } catch (error) {
+          console.warn(`Failed to add product: ${product.name}`, error);
+          skippedCount++;
+        }
+      }
+    }
+  });
+
+  return {
+    imported: addedCount + updatedCount,
+    added: addedCount,
+    updated: updatedCount,
+    skipped: skippedCount,
+    fileName: fileLabel,
+  };
+}
+
+export async function importProductsFromMultipleCsvFiles() {
+  const pickerResult = await DocumentPicker.getDocumentAsync({
+    copyToCacheDirectory: true,
+    type: '*/*',
+    multiple: true,
+  });
+
+  const pickerCancelled =
+    (typeof pickerResult.canceled === 'boolean' && pickerResult.canceled) ||
+    ((pickerResult as any).type === 'cancel');
+
+  if (pickerCancelled) {
+    return null;
+  }
+
+  const assets = pickerResult.assets || [];
+  if (assets.length === 0) {
+    return null;
+  }
+
+  // Get existing products once for all imports
+  const existingProducts = await db.getAllProducts();
+  const existingProductMap = new Map(
+    existingProducts.map((p: any) => [p.name.toLowerCase().trim(), p])
+  );
+
+  let totalAdded = 0;
+  let totalUpdated = 0;
+  let totalSkipped = 0;
+  const processedFiles: string[] = [];
+  const failedFiles: string[] = [];
+
+  for (const asset of assets) {
+    try {
+      let fileContent: string;
+      const uri = asset.uri;
+      
+      if (
+        uri.startsWith('content://') &&
+        StorageAccessFramework?.readAsStringAsync
+      ) {
+        fileContent = await StorageAccessFramework.readAsStringAsync(uri);
+      } else {
+        fileContent = await readAsStringAsync(uri, { encoding: EncodingType.UTF8 });
+      }
+
+      const parsedBackup = parseInventoryBackupContent(fileContent);
+      if (!parsedBackup.products.length) {
+        failedFiles.push(asset.name || 'unknown');
+        continue;
+      }
+
+      // Process products from this file
+      await db.runInTransaction(async (connection) => {
+        for (const product of parsedBackup.products) {
+          const normalizedName = product.name.toLowerCase().trim();
+          const existing = existingProductMap.get(normalizedName);
+
+          if (existing) {
+            try {
+              await db.updateProduct(existing.id, product, { connection });
+              totalUpdated++;
+              // Update the map with new data
+              existingProductMap.set(normalizedName, { ...existing, ...product });
+            } catch (error) {
+              console.warn(`Failed to update product: ${product.name}`, error);
+              totalSkipped++;
+            }
+          } else {
+            try {
+              const newId = await db.addProduct(product, { connection });
+              totalAdded++;
+              // Add to map so subsequent files know about it
+              existingProductMap.set(normalizedName, { ...product, id: newId });
+            } catch (error) {
+              console.warn(`Failed to add product: ${product.name}`, error);
+              totalSkipped++;
+            }
+          }
+        }
+      });
+
+      processedFiles.push(asset.name || 'unknown');
+    } catch (error) {
+      console.warn(`Failed to process file: ${asset.name}`, error);
+      failedFiles.push(asset.name || 'unknown');
+    }
+  }
+
+  return {
+    imported: totalAdded + totalUpdated,
+    added: totalAdded,
+    updated: totalUpdated,
+    skipped: totalSkipped,
+    filesProcessed: processedFiles.length,
+    filesFailed: failedFiles.length,
+    totalFiles: assets.length,
+    processedFiles,
+    failedFiles,
+  };
+}
+
+type ParsedInventoryBackup = {
+  products: ExportableProduct[];
+  format: 'json' | 'csv';
+};
+
+const tryParseJsonInventory = (payload: string): ExportableProduct[] | null => {
+  try {
+    const parsed = JSON.parse(payload);
+    if (Array.isArray(parsed)) {
+      return normalizeProductsForExport(parsed);
+    }
+    if (parsed && typeof parsed === 'object') {
+      if (Array.isArray((parsed as any).products)) {
+        return normalizeProductsForExport((parsed as any).products);
+      }
+      if (Array.isArray((parsed as any).payload?.products)) {
+        return normalizeProductsForExport((parsed as any).payload.products);
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
+};
+
+const parseInventoryBackupContent = (fileContent: string): ParsedInventoryBackup => {
+  const trimmed = fileContent.trim();
+  if (!trimmed) {
+    return { products: [], format: 'json' };
+  }
+
+  const jsonProducts = tryParseJsonInventory(trimmed);
+  if (jsonProducts) {
+    return { products: jsonProducts, format: 'json' };
+  }
+
+  // Heuristic delimiter detection (CSV vs TSV)
+  const commaCount = (trimmed.match(/,/g) || []).length;
+  const tabCount = (trimmed.match(/\t/g) || []).length;
+  const delimiter = tabCount > commaCount ? '\t' : ',';
+
+  const parsed = Papa.parse<CsvRow>(fileContent, {
+    header: true,
+    skipEmptyLines: true,
+    delimiter,
+    transformHeader: (h) => h.trim(),
+  });
+
+  if (parsed.errors.length) {
+    console.warn('[CSV Import] Non-fatal parse errors detected:', parsed.errors.slice(0, 3));
+  }
+
+  let rows = parsed.data;
+
+  // Fallback: if we failed to get rows, try a very loose parse by normalizing tabs to commas
+  if (!rows || rows.length === 0) {
+    const relaxedContent = trimmed.replace(/\t/g, ',');
+    const relaxed = Papa.parse<CsvRow>(relaxedContent, {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: (h) => h.trim(),
+    });
+    if (relaxed.errors.length) {
+      console.warn('[CSV Import] Relaxed parse still has errors:', relaxed.errors.slice(0, 3));
+    }
+    rows = relaxed.data ?? [];
+  }
+
+  const csvProducts = normalizeProductsForExport(rows);
+  return { products: csvProducts, format: 'csv' };
+};
+
+async function buildInventorySnapshot(): Promise<InventorySnapshot> {
+  const localData = await db.getAllProducts();
+  const products = normalizeProductsForExport(localData);
+  return {
+    version: INVENTORY_SNAPSHOT_VERSION,
+    exportedAt: new Date().toISOString(),
+    source: 'local',
+    productCount: products.length,
+    products,
+  };
+}
+
+function sanitizeFileName(name?: string) {
+  const fallback = `inventory-backup-${new Date().toISOString().split('T')[0]}${INVENTORY_FILE_EXTENSION}`;
+  if (!name) {
+    return fallback;
+  }
+  const trimmed = name.trim().replace(/[\\/:*?"<>|]+/g, '-');
+  if (!trimmed) {
+    return fallback;
+  }
+  return trimmed.toLowerCase().endsWith(INVENTORY_FILE_EXTENSION)
+    ? trimmed
+    : `${trimmed}${INVENTORY_FILE_EXTENSION}`;
+}
+
+function sanitizeCsvFileName(name?: string) {
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const fallback = `inventory-export-${dd}-${mm}-${yy}${INVENTORY_CSV_EXTENSION}`;
+  if (!name) {
+    return fallback;
+  }
+  const trimmed = name.trim().replace(/[\\/:*?"<>|]+/g, '-');
+  if (!trimmed) {
+    return fallback;
+  }
+  return trimmed.toLowerCase().endsWith(INVENTORY_CSV_EXTENSION)
+    ? trimmed
+    : `${trimmed}${INVENTORY_CSV_EXTENSION}`;
+}
+
+const isInventoryBackupFile = (uri: string) => {
+  const lower = uri.toLowerCase();
+  return lower.endsWith(INVENTORY_FILE_EXTENSION) || lower.endsWith('.csv');
+};
+
+export async function exportDataSnapshot(fileName?: string, options?: ExportSnapshotOptions) {
+  const interactive = options?.interactive ?? true;
+  const snapshot = await buildInventorySnapshot();
+  const serialized = serializeInventorySnapshot(snapshot);
+  const sanitizedName = sanitizeFileName(fileName);
+  const exportDir = (documentDirectory ?? cacheDirectory ?? '').replace(/\/?$/, '/');
+  const fileUri = `${exportDir}${sanitizedName}`;
+
+  await writeAsStringAsync(fileUri, serialized, { encoding: EncodingType.UTF8 });
+
+  if (interactive && (await Sharing.isAvailableAsync())) {
+    await Sharing.shareAsync(fileUri, { mimeType: SNAPSHOT_MIME_TYPE });
+  }
+
+  return fileUri;
+}
+
+export async function exportInventoryCsv(
+  fileName?: string,
+  options?: { share?: boolean }
+): Promise<{ uri: string; fileName: string }> {
+  const share = options?.share ?? true;
+  const snapshot = await buildInventorySnapshot();
+  const csvRows = buildInventoryCsvRows(snapshot.products);
+  const serialized = Papa.unparse(csvRows, { columns: INVENTORY_CSV_COLUMNS, header: true });
+  const sanitizedName = sanitizeCsvFileName(fileName);
+  const exportDir = (documentDirectory ?? cacheDirectory ?? '').replace(/\/?$/, '/');
+  const fileUri = `${exportDir}${sanitizedName}`;
+
+  await writeAsStringAsync(fileUri, serialized, { encoding: EncodingType.UTF8 });
+
+  if (share && (await Sharing.isAvailableAsync())) {
+    await Sharing.shareAsync(fileUri, { mimeType: CSV_MIME_TYPE });
+  }
+
+  return { uri: fileUri, fileName: sanitizedName };
+}
+
+type ExportLocation = 'downloads' | 'internal';
+
+export async function exportInventoryCsvToDevice(
+  fileName?: string
+): Promise<{ uri: string; location: ExportLocation; fileName: string }> {
+  const snapshot = await buildInventorySnapshot();
+  const csvRows = buildInventoryCsvRows(snapshot.products);
+  const serialized = Papa.unparse(csvRows, { columns: INVENTORY_CSV_COLUMNS, header: true });
+  const sanitizedName = sanitizeCsvFileName(fileName);
+
+  const saveToDownloads = async (): Promise<string | null> => {
+    if (
+      Platform.OS !== 'android' ||
+      !StorageAccessFramework ||
+      typeof StorageAccessFramework.requestDirectoryPermissionsAsync !== 'function'
+    ) {
+      return null;
+    }
+
+    const writeToDir = async (dirUri: string) => {
+      const uri = await StorageAccessFramework.createFileAsync(
+        dirUri,
+        sanitizedName,
+        CSV_MIME_TYPE
+      );
+      await writeAsStringAsync(uri, serialized, { encoding: EncodingType.UTF8 });
+      return uri;
+    };
+
+    let directoryUri = await ensureDownloadsDirectory();
+    if (!directoryUri) {
+      throw new Error('E_SAF_PERMISSION');
+    }
+    try {
+      return await writeToDir(directoryUri);
+    } catch (error) {
+      if (isSafPermissionError(error)) {
+        await persistBackupDirectory(null);
+        directoryUri = await requestDownloadsDirectoryPermissions();
+        return await writeToDir(directoryUri);
+      }
+      throw error;
+    }
+  };
+
+  try {
+    const downloadsUri = await saveToDownloads();
+    if (downloadsUri) {
+      return {
+        uri: downloadsUri,
+        location: 'downloads' as ExportLocation,
+        fileName: sanitizedName,
+      };
+    }
+  } catch (error) {
+    if ((error as Error)?.message === 'E_SAF_PERMISSION') {
+      throw error;
+    }
+    console.warn('[InventoryExport] Save CSV to Downloads failed, falling back', error);
+  }
+
+  const exportDir = (documentDirectory ?? cacheDirectory ?? '').replace(/\/?$/, '/');
+  const fallbackUri = `${exportDir}${sanitizedName}`;
+  await writeAsStringAsync(fallbackUri, serialized, { encoding: EncodingType.UTF8 });
+  return {
+    uri: fallbackUri,
+    location: 'internal' as ExportLocation,
+    fileName: sanitizedName,
+  };
+}
+
+export async function exportInventorySnapshotToDevice(
+  fileName?: string
+): Promise<{ uri: string; location: ExportLocation; fileName: string }> {
+  const snapshot = await buildInventorySnapshot();
+  const serialized = serializeInventorySnapshot(snapshot);
+  const sanitizedName = sanitizeFileName(fileName);
+
+  const saveToDownloads = async (): Promise<string | null> => {
+    if (
+      Platform.OS !== 'android' ||
+      !StorageAccessFramework ||
+      typeof StorageAccessFramework.requestDirectoryPermissionsAsync !== 'function'
+    ) {
+      return null;
+    }
+
+    const writeToDir = async (dirUri: string) => {
+      const uri = await StorageAccessFramework.createFileAsync(
+        dirUri,
+        sanitizedName,
+        SNAPSHOT_MIME_TYPE
+      );
+      await writeAsStringAsync(uri, serialized, { encoding: EncodingType.UTF8 });
+      return uri;
+    };
+
+    let directoryUri = await ensureDownloadsDirectory();
+    if (!directoryUri) {
+      throw new Error('E_SAF_PERMISSION');
+    }
+    try {
+      return await writeToDir(directoryUri);
+    } catch (error) {
+      if (isSafPermissionError(error)) {
+        await persistBackupDirectory(null);
+        directoryUri = await requestDownloadsDirectoryPermissions();
+        return await writeToDir(directoryUri);
+      }
+      throw error;
+    }
+  };
+
+  try {
+    const downloadsUri = await saveToDownloads();
+    if (downloadsUri) {
+      const meta = {
+        uri: downloadsUri,
+        location: 'downloads' as ExportLocation,
+        fileName: sanitizedName,
+        savedAt: new Date().toISOString(),
+      };
+      await persistLastBackupMeta(meta);
+      return meta;
+    }
+  } catch (error) {
+    if ((error as Error)?.message === 'E_SAF_PERMISSION') {
+      throw error;
+    }
+    console.warn('[InventoryBackup] Save to Downloads failed, falling back', error);
+  }
+
+  const exportDir = (documentDirectory ?? cacheDirectory ?? '').replace(/\/?$/, '/');
+  const fallbackUri = `${exportDir}${sanitizedName}`;
+  await writeAsStringAsync(fallbackUri, serialized, { encoding: EncodingType.UTF8 });
+  const fallbackMeta = {
+    uri: fallbackUri,
+    location: 'internal' as ExportLocation,
+    fileName: sanitizedName,
+    savedAt: new Date().toISOString(),
+  };
+  await persistLastBackupMeta(fallbackMeta);
+  return fallbackMeta;
+}
+
+export async function getLatestInventoryBackupFromDownloads() {
+  if (
+    Platform.OS !== 'android' ||
+    !StorageAccessFramework ||
+    typeof StorageAccessFramework.readDirectoryAsync !== 'function'
+  ) {
+    return null;
+  }
+  const directoryUri = await getStoredBackupDirectory();
+  if (!directoryUri) {
+    return null;
+  }
+  try {
+    const entries = await StorageAccessFramework.readDirectoryAsync(directoryUri);
+    const backupEntries = entries.filter((uri) => isInventoryBackupFile(uri));
+    if (!backupEntries.length) {
+      return null;
+    }
+    const latestUri = backupEntries.slice().sort().pop()!;
+    return {
+      uri: latestUri,
+      name: decodeURIComponent(
+        latestUri.split('/').pop() ?? `inventory-backup${INVENTORY_FILE_EXTENSION}`
+      ),
+    };
+  } catch (error) {
+    if (isSafPermissionError(error)) {
+      await persistBackupDirectory(null);
+    }
+    console.warn('[InventoryBackup] Failed to enumerate saved backups', error);
+    return null;
+  }
+}
+
+export async function registerExportTask(intervalHours = 24) {
+  if (!canScheduleBackgroundTasks) {
+    return;
+  }
+  ensureExportTaskDefinition();
+  try {
+    const isRegistered = await TaskManager.isTaskRegisteredAsync(EXPORT_TASK);
+    if (!isRegistered) {
+      await BackgroundFetch.registerTaskAsync(EXPORT_TASK, {
+        minimumInterval: intervalHours * 3600,
+        stopOnTerminate: false,
+        startOnBoot: true,
+      });
+    }
+  } catch (error) {
+    console.warn('Failed to register export task:', error);
+    // Don't throw - this is a non-critical feature
+  }
+}
+
+export async function unregisterExportTask() {
+  if (!canScheduleBackgroundTasks) {
+    return;
+  }
+  const isRegistered = await TaskManager.isTaskRegisteredAsync(EXPORT_TASK);
+  if (isRegistered) {
+    await BackgroundFetch.unregisterTaskAsync(EXPORT_TASK);
+  }
+}

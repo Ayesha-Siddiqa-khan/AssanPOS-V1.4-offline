@@ -38,6 +38,8 @@ import {
   importProductsFromMultipleCsvFiles,
   saveSampleInventoryFile,
   exportDataSnapshot,
+  exportInventoryCsv,
+  exportInventoryCsvToDevice,
   exportInventorySnapshotToDevice,
   getLatestInventoryBackupFromDownloads,
   getLastInventoryBackupMeta,
@@ -66,6 +68,14 @@ const getDefaultBackupFileName = () => {
   const m = String(now.getMonth() + 1).padStart(2, '0');
   const d = String(now.getDate()).padStart(2, '0');
   return `inventory-backup-${y}-${m}-${d}.json`;
+};
+
+const getDefaultCsvExportFileName = () => {
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  return `inventory-export-${dd}-${mm}-${yy}.csv`;
 };
 
 type User = {
@@ -154,6 +164,10 @@ export default function SettingsScreen() {
   const [isSavingBackupToDevice, setIsSavingBackupToDevice] = useState(false);
   const [isBackupOptionsVisible, setIsBackupOptionsVisible] = useState(false);
   const [backupFileName, setBackupFileName] = useState(getDefaultBackupFileName);
+  const [isCsvExportOptionsVisible, setIsCsvExportOptionsVisible] = useState(false);
+  const [csvExportFileName, setCsvExportFileName] = useState(getDefaultCsvExportFileName);
+  const [isSavingCsvToDevice, setIsSavingCsvToDevice] = useState(false);
+  const [isSharingCsv, setIsSharingCsv] = useState(false);
   const [lastInventoryBackup, setLastInventoryBackup] = useState<InventoryBackupInfo | null>(null);
   const [isClearingInventory, setIsClearingInventory] = useState(false);
   const [cacheScheduleEnabled, setCacheScheduleEnabled] = useState(true);
@@ -744,6 +758,63 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleSaveCsvToDevice = async () => {
+    const trimmed = csvExportFileName.trim();
+    if (!trimmed) {
+      Toast.show({ type: 'info', text1: t('Enter a file name first') });
+      return;
+    }
+    setIsSavingCsvToDevice(true);
+    try {
+      const result = await exportInventoryCsvToDevice(trimmed);
+      Toast.show({
+        type: 'success',
+        text1: t('CSV saved to local drive'),
+        text2:
+          result.location === 'downloads'
+            ? t('Saved to Downloads as {file}').replace('{file}', result.fileName)
+            : t('Saved to app storage as {file}').replace('{file}', result.fileName),
+      });
+      setIsCsvExportOptionsVisible(false);
+    } catch (error: any) {
+      if (error?.message === 'E_SAF_PERMISSION') {
+        Toast.show({
+          type: 'info',
+          text1: t('Download permission not granted'),
+          text2: t('Please select a folder to continue'),
+        });
+      } else {
+        console.error('CSV save failed', error);
+        Toast.show({ type: 'error', text1: t('CSV export failed') });
+      }
+    } finally {
+      setIsSavingCsvToDevice(false);
+    }
+  };
+
+  const handleShareCsvToDrive = async () => {
+    const trimmed = csvExportFileName.trim();
+    if (!trimmed) {
+      Toast.show({ type: 'info', text1: t('Enter a file name first') });
+      return;
+    }
+    setIsSharingCsv(true);
+    try {
+      const result = await exportInventoryCsv(trimmed, { share: true });
+      Toast.show({
+        type: 'success',
+        text1: t('CSV ready'),
+        text2: result.fileName,
+      });
+      setIsCsvExportOptionsVisible(false);
+    } catch (error) {
+      console.error('CSV export failed', error);
+      Toast.show({ type: 'error', text1: t('CSV export failed') });
+    } finally {
+      setIsSharingCsv(false);
+    }
+  };
+
   const handleSaveBackupToDevice = async () => {
     const trimmed = backupFileName.trim();
     if (!trimmed) {
@@ -957,6 +1028,11 @@ export default function SettingsScreen() {
   const openBackupOptions = () => {
     setBackupFileName(getDefaultBackupFileName());
     setIsBackupOptionsVisible(true);
+  };
+
+  const openCsvExportOptions = () => {
+    setCsvExportFileName(getDefaultCsvExportFileName());
+    setIsCsvExportOptionsVisible(true);
   };
 
   const handleRestoreInventoryCardPress = async () => {
@@ -2044,6 +2120,23 @@ export default function SettingsScreen() {
 
         <TouchableOpacity
           style={[styles.maintenanceCard, { marginTop: 12 }]}
+          onPress={openCsvExportOptions}
+          activeOpacity={0.85}
+          disabled={isSavingCsvToDevice || isSharingCsv}
+        >
+          <View style={[styles.maintenanceIcon, { backgroundColor: '#fef9c3' }]}>
+            <Ionicons name="download-outline" size={22} color="#ca8a04" />
+          </View>
+          <Text style={styles.maintenanceLabel}>{t('Export Inventory CSV')}</Text>
+          <Text style={styles.maintenanceMeta}>
+            {isSavingCsvToDevice || isSharingCsv
+              ? t('Preparing CSV...')
+              : t('Save all items as a CSV file')}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.maintenanceCard, { marginTop: 12 }]}
           onPress={() => handleImportProducts(undefined, t('CSV import'))}
           activeOpacity={0.85}
           disabled={isImportingCsv}
@@ -2572,6 +2665,66 @@ export default function SettingsScreen() {
               </Button>
             </View>
             <Button variant="ghost" onPress={() => setIsBackupOptionsVisible(false)}>
+              {t('Cancel')}
+            </Button>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={isCsvExportOptionsVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsCsvExportOptionsVisible(false)}
+      >
+        <View style={styles.backupModalOverlay}>
+          <View style={styles.backupModalCard}>
+            <Text style={styles.backupModalTitle}>{t('Inventory CSV Export')}</Text>
+            <Text style={styles.backupModalSubtitle}>
+              {t('Choose where to save your CSV file.')}
+            </Text>
+            <Text style={styles.backupModalLabel}>{t('File Name')}</Text>
+            <TextInput
+              style={styles.backupModalInput}
+              value={csvExportFileName}
+              onChangeText={setCsvExportFileName}
+              placeholder={t('e.g., inventory-export-aug.csv')}
+            />
+            <Text style={styles.backupModalHint}>
+              {t('Give this file a descriptive name so you can find it later.')}
+            </Text>
+            <View style={styles.backupModalActions}>
+              <Button
+                style={styles.backupModalPrimary}
+                onPress={handleSaveCsvToDevice}
+                disabled={isSavingCsvToDevice || isSharingCsv}
+              >
+                {isSavingCsvToDevice ? (
+                  <View style={styles.buttonLoading}>
+                    <ActivityIndicator size="small" color="#ffffff" />
+                    <Text style={styles.backupModalPrimaryText}>{t('Saving...')}</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.backupModalPrimaryText}>{t('Save to Local Drive')}</Text>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                style={styles.backupModalSecondary}
+                onPress={handleShareCsvToDrive}
+                disabled={isSavingCsvToDevice || isSharingCsv}
+              >
+                {isSharingCsv ? (
+                  <View style={styles.buttonLoading}>
+                    <ActivityIndicator size="small" color="#2563eb" />
+                    <Text style={styles.backupModalSecondaryText}>{t('Preparing...')}</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.backupModalSecondaryText}>{t('Share to Google Drive')}</Text>
+                )}
+              </Button>
+            </View>
+            <Button variant="ghost" onPress={() => setIsCsvExportOptionsVisible(false)}>
               {t('Cancel')}
             </Button>
           </View>

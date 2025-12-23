@@ -39,7 +39,8 @@ import type { NetworkPrinterConfig } from '../../types/printer';
 
 const PRODUCT_SELECTION_BARCODE_TYPES: BarcodeType[] = ['ean13', 'code128', 'upc_a', 'upc_e', 'code39', 'code93'];
 const SCAN_REENABLE_DELAY_MS = 4000;
-const SCAN_PREVIEW_DELAY_MS = 1000;
+const DEFAULT_SCAN_PREVIEW_DELAY_MS = 1000;
+const SCAN_PREVIEW_DELAY_OPTIONS_MS = [500, 1000, 1500, 2000, 3000, 4000, 5000];
 // Keep dropdown short for speed/clarity
 const MAX_SUGGESTIONS = 7;
 
@@ -99,6 +100,7 @@ export default function ProductSelectionModal() {
   const [scanMode, setScanMode] = useState<ScanMode>('barcode');
   const [multiScanMode, setMultiScanMode] = useState(false);
   const [scanFrameSize, setScanFrameSize] = useState<'small' | 'medium' | 'large'>('small');
+  const [scanPreviewDelayMs, setScanPreviewDelayMs] = useState(DEFAULT_SCAN_PREVIEW_DELAY_MS);
   const lastAutoAddBarcodeRef = useRef<string | null>(null);
   const [scanPreview, setScanPreview] = useState<{
     barcode: string;
@@ -971,7 +973,7 @@ export default function ProductSelectionModal() {
         if (multiScanMode) {
           setTimeout(() => setCanScanBarcode(true), SCAN_REENABLE_DELAY_MS);
         }
-      }, SCAN_PREVIEW_DELAY_MS);
+      }, scanPreviewDelayMs);
     } catch (error) {
       console.error('[ProductSelection] Barcode scan error:', error);
       Toast.show({
@@ -2364,6 +2366,33 @@ export default function ProductSelectionModal() {
                         {t('Multi-scan')}
                       </Text>
                     </TouchableOpacity>
+                  </View>
+                  <View style={styles.previewDelayRow}>
+                    <Text style={styles.previewDelayLabel}>{t('Preview delay')}</Text>
+                    <View style={styles.previewDelayChips}>
+                      {SCAN_PREVIEW_DELAY_OPTIONS_MS.map((option) => {
+                        const seconds = option / 1000;
+                        const label = `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)}s`;
+                        const isActive = option === scanPreviewDelayMs;
+                        return (
+                          <TouchableOpacity
+                            key={option}
+                            style={[styles.previewDelayChip, isActive && styles.previewDelayChipActive]}
+                            onPress={() => setScanPreviewDelayMs(option)}
+                            activeOpacity={0.85}
+                          >
+                            <Text
+                              style={[
+                                styles.previewDelayChipText,
+                                isActive && styles.previewDelayChipTextActive,
+                              ]}
+                            >
+                              {label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
                   </View>
                   <View style={styles.cameraContainer}>
                     <CameraView
@@ -3763,15 +3792,15 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.6)',
     justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
+    alignItems: 'stretch',
+    paddingVertical: 20,
+    paddingHorizontal: 0,
   },
   barcodeModalContent: {
     backgroundColor: '#ffffff',
     borderRadius: 16,
     padding: 24,
     width: '100%',
-    maxWidth: 400,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
@@ -3828,6 +3857,46 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: 10,
   },
+  previewDelayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 10,
+  },
+  previewDelayLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  previewDelayChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+    justifyContent: 'flex-end',
+    flexShrink: 1,
+  },
+  previewDelayChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    backgroundColor: '#f8fafc',
+  },
+  previewDelayChipActive: {
+    borderColor: '#2563eb',
+    backgroundColor: '#eef2ff',
+  },
+  previewDelayChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1f2937',
+  },
+  previewDelayChipTextActive: {
+    color: '#1d4ed8',
+  },
   multiScanChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3882,12 +3951,13 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(15, 23, 42, 0.35)',
     justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
+    alignItems: 'stretch',
+    paddingVertical: 16,
+    paddingHorizontal: 0,
   },
   scanPreviewCard: {
     width: '100%',
-    maxWidth: 320,
+    alignSelf: 'stretch',
     backgroundColor: '#ffffff',
     borderRadius: 16,
     padding: 16,

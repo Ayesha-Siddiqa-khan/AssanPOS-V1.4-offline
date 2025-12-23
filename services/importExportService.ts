@@ -24,7 +24,9 @@ const INVENTORY_BACKUP_META_KEY = 'inventory.lastBackupMeta';
 const DOWNLOAD_DIR_NAME = 'Download';
 const INVENTORY_SNAPSHOT_VERSION = 2;
 const INVENTORY_FILE_EXTENSION = '.json';
+const INVENTORY_CSV_EXTENSION = '.csv';
 const SNAPSHOT_MIME_TYPE = 'application/json';
+const CSV_MIME_TYPE = 'text/csv';
 const SAMPLE_INVENTORY_CSV = `name,category,hasVariants,variants,price,stock,minStock,barcode,unit,costPrice
 "Sunrise Basmati Rice",Grocery,true,"[{""id"":1,""name"":""1kg"",""price"":430,""stock"":20,""minStock"":5},{""id"":2,""name"":""5kg"",""price"":2100,""stock"":8,""minStock"":2}]",,,,"",""
 "Eggs Tray",Dairy,false,,"360",12,4,899999111222,tray,320
@@ -275,6 +277,33 @@ const normalizeProductsForExport = (products: any[]): ExportableProduct[] => {
 
 const serializeInventorySnapshot = (snapshot: InventorySnapshot) =>
   JSON.stringify(snapshot, null, 2);
+
+const INVENTORY_CSV_COLUMNS = [
+  'name',
+  'category',
+  'hasVariants',
+  'variants',
+  'price',
+  'stock',
+  'minStock',
+  'barcode',
+  'unit',
+  'costPrice',
+];
+
+const buildInventoryCsvRows = (products: ExportableProduct[]): CsvRow[] =>
+  products.map((product) => ({
+    name: product.name,
+    category: product.category,
+    hasVariants: product.hasVariants ? 'true' : 'false',
+    variants: product.variants?.length ? JSON.stringify(product.variants) : '',
+    price: product.price ?? '',
+    stock: product.stock ?? '',
+    minStock: product.minStock ?? '',
+    barcode: product.barcode ?? '',
+    unit: product.unit ?? '',
+    costPrice: product.costPrice ?? '',
+  }));
 
 const getStoredBackupDirectory = async (): Promise<string | null> => {
   const value = (await db.getSetting(INVENTORY_BACKUP_DIR_KEY)) as string | null;
@@ -734,6 +763,24 @@ function sanitizeFileName(name?: string) {
     : `${trimmed}${INVENTORY_FILE_EXTENSION}`;
 }
 
+function sanitizeCsvFileName(name?: string) {
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const fallback = `inventory-export-${dd}-${mm}-${yy}${INVENTORY_CSV_EXTENSION}`;
+  if (!name) {
+    return fallback;
+  }
+  const trimmed = name.trim().replace(/[\\/:*?"<>|]+/g, '-');
+  if (!trimmed) {
+    return fallback;
+  }
+  return trimmed.toLowerCase().endsWith(INVENTORY_CSV_EXTENSION)
+    ? trimmed
+    : `${trimmed}${INVENTORY_CSV_EXTENSION}`;
+}
+
 const isInventoryBackupFile = (uri: string) => {
   const lower = uri.toLowerCase();
   return lower.endsWith(INVENTORY_FILE_EXTENSION) || lower.endsWith('.csv');
@@ -774,7 +821,97 @@ export async function exportDataSnapshot(fileName?: string, options?: ExportSnap
   return fileUri;
 }
 
+export async function exportInventoryCsv(
+  fileName?: string,
+  options?: { share?: boolean }
+): Promise<{ uri: string; fileName: string }> {
+  const share = options?.share ?? true;
+  const snapshot = await buildInventorySnapshot();
+  const csvRows = buildInventoryCsvRows(snapshot.products);
+  const serialized = Papa.unparse(csvRows, { columns: INVENTORY_CSV_COLUMNS, header: true });
+  const sanitizedName = sanitizeCsvFileName(fileName);
+  const exportDir = (documentDirectory ?? cacheDirectory ?? '').replace(/\/?$/, '/');
+  const fileUri = `${exportDir}${sanitizedName}`;
+
+  await writeAsStringAsync(fileUri, serialized, { encoding: EncodingType.UTF8 });
+
+  if (share && (await Sharing.isAvailableAsync())) {
+    await Sharing.shareAsync(fileUri, { mimeType: CSV_MIME_TYPE });
+  }
+
+  return { uri: fileUri, fileName: sanitizedName };
+}
+
 type ExportLocation = 'downloads' | 'internal';
+
+export async function exportInventoryCsvToDevice(
+  fileName?: string
+): Promise<{ uri: string; location: ExportLocation; fileName: string }> {
+  const snapshot = await buildInventorySnapshot();
+  const csvRows = buildInventoryCsvRows(snapshot.products);
+  const serialized = Papa.unparse(csvRows, { columns: INVENTORY_CSV_COLUMNS, header: true });
+  const sanitizedName = sanitizeCsvFileName(fileName);
+
+  const saveToDownloads = async (): Promise<string | null> => {
+    if (
+      Platform.OS !== 'android' ||
+      !StorageAccessFramework ||
+      typeof StorageAccessFramework.requestDirectoryPermissionsAsync !== 'function'
+    ) {
+      return null;
+    }
+
+    const writeToDir = async (dirUri: string) => {
+      const uri = await StorageAccessFramework.createFileAsync(
+        dirUri,
+        sanitizedName,
+        CSV_MIME_TYPE
+      );
+      await writeAsStringAsync(uri, serialized, { encoding: EncodingType.UTF8 });
+      return uri;
+    };
+
+    let directoryUri = await ensureDownloadsDirectory();
+    if (!directoryUri) {
+      throw new Error('E_SAF_PERMISSION');
+    }
+    try {
+      return await writeToDir(directoryUri);
+    } catch (error) {
+      if (isSafPermissionError(error)) {
+        await persistBackupDirectory(null);
+        directoryUri = await requestDownloadsDirectoryPermissions();
+        return await writeToDir(directoryUri);
+      }
+      throw error;
+    }
+  };
+
+  try {
+    const downloadsUri = await saveToDownloads();
+    if (downloadsUri) {
+      return {
+        uri: downloadsUri,
+        location: 'downloads' as ExportLocation,
+        fileName: sanitizedName,
+      };
+    }
+  } catch (error) {
+    if ((error as Error)?.message === 'E_SAF_PERMISSION') {
+      throw error;
+    }
+    console.warn('[InventoryExport] Save CSV to Downloads failed, falling back', error);
+  }
+
+  const exportDir = (documentDirectory ?? cacheDirectory ?? '').replace(/\/?$/, '/');
+  const fallbackUri = `${exportDir}${sanitizedName}`;
+  await writeAsStringAsync(fallbackUri, serialized, { encoding: EncodingType.UTF8 });
+  return {
+    uri: fallbackUri,
+    location: 'internal' as ExportLocation,
+    fileName: sanitizedName,
+  };
+}
 
 export async function exportInventorySnapshotToDevice(
   fileName?: string

@@ -5,11 +5,12 @@ import React, {
   useEffect,
   useState,
 } from 'react';
-import { Alert, AppState, AppStateStatus } from 'react-native';
+import { AppState, AppStateStatus } from 'react-native';
 import {
   AuthenticatedUser,
   authenticateWithAccessKey,
   getPersistedSession,
+  ensureOfflineSession,
   checkUserStatus,
   logout as logoutService,
   persistSession,
@@ -41,13 +42,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const updatedUser = await checkUserStatus();
           
           if (!updatedUser) {
-            // User has been deactivated
-            setUser(null);
-            Alert.alert(
-              'Account Deactivated',
-              ACCOUNT_DISABLED_MESSAGE,
-              [{ text: 'OK' }]
-            );
+            const fallbackUser = await ensureOfflineSession();
+            setUser(fallbackUser);
           } else if (JSON.stringify(updatedUser) !== JSON.stringify(user)) {
             // Only update if user data actually changed
             setUser(updatedUser);
@@ -77,13 +73,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const updatedUser = await checkUserStatus();
         
         if (!updatedUser) {
-          // User has been deactivated
-          setUser(null);
-          Alert.alert(
-            'Account Deactivated',
-            ACCOUNT_DISABLED_MESSAGE,
-            [{ text: 'OK' }]
-          );
+          const fallbackUser = await ensureOfflineSession();
+          setUser(fallbackUser);
         } else if (JSON.stringify(updatedUser) !== JSON.stringify(user)) {
           // Only update if user data actually changed
           setUser(updatedUser);
@@ -107,12 +98,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           try {
             const updatedUser = await checkUserStatus();
             if (!updatedUser) {
-              Alert.alert(
-                'Account Deactivated',
-                ACCOUNT_DISABLED_MESSAGE,
-                [{ text: 'OK' }]
-              );
-              setUser(null);
+              const fallbackUser = await ensureOfflineSession();
+              setUser(fallbackUser);
             } else if (JSON.stringify(updatedUser) !== JSON.stringify(sessionUser)) {
               // Only update if user data actually changed from cached session
               setUser(updatedUser);
@@ -124,6 +111,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               console.error('[AuthContext] Failed to validate session', error);
             }
           }
+        } else {
+          const offlineUser = await ensureOfflineSession();
+          setUser(offlineUser);
         }
       } catch (error) {
         console.error('Failed to initialize auth layer', error);
@@ -173,7 +163,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = useCallback(async () => {
     await logoutService();
-    setUser(null);
+    const fallbackUser = await ensureOfflineSession();
+    setUser(fallbackUser);
   }, []);
 
   return (

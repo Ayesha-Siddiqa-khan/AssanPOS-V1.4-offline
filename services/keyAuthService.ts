@@ -95,6 +95,34 @@ export async function authenticateWithAccessKey(accessKey: string): Promise<Auth
   return authenticatedUser;
 }
 
+export async function ensureOfflineSession(): Promise<AuthenticatedUser> {
+  await ensureLocalAuthSeed();
+
+  const existingUsers = await db.listUsers();
+  let activeUser = existingUsers.find((user) => user.isActive);
+
+  if (!activeUser) {
+    const roles = await db.getRoles();
+    const managerRole = roles.find((role) => role.name === 'manager') ?? roles[0];
+    const roleId = managerRole?.id ?? 1;
+    const newUserId = await db.createUser({
+      name: DEFAULT_OFFLINE_USER_NAME,
+      roleId,
+      biometricEnabled: false,
+    });
+    activeUser = await db.getUserById(newUserId);
+  }
+
+  if (!activeUser) {
+    throw new Error('Unable to create an offline user session');
+  }
+
+  await db.updateUser(activeUser.id, { lastLoginAt: new Date().toISOString() });
+  const authenticatedUser = await buildAuthenticatedUser(activeUser);
+  await persistSession(authenticatedUser);
+  return authenticatedUser;
+}
+
 export async function getPersistedSession(): Promise<AuthenticatedUser | null> {
   await ensureLocalAuthSeed();
   const userJson = await SecureStore.getItemAsync(SESSION_USER_KEY);

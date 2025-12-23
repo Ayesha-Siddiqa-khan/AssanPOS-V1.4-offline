@@ -9,7 +9,6 @@ import { PosProvider } from '../contexts/PosContext';
 import { View, ActivityIndicator, Text, StyleSheet, Animated, TouchableWithoutFeedback, TouchableOpacity, LogBox } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '../contexts/AuthContext';
-import { KeyLoginScreen } from '../components/auth/KeyLoginScreen';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { ReceiptBitmapRenderer } from '../components/printing/ReceiptBitmapRenderer';
 import { initCrashLogger } from '../lib/crashLogger';
@@ -156,15 +155,6 @@ const AppNavigation = () => {
         <ActivityIndicator size="large" color="#2563eb" />
         <Text style={styles.loaderText}>Preparing your register...</Text>
       </View>
-    );
-  }
-
-  if (!user) {
-    return (
-      <>
-        <StatusBar style="dark" />
-        <KeyLoginScreen />
-      </>
     );
   }
 
